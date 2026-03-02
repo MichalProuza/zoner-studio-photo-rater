@@ -49,12 +49,6 @@ def load_ratings(path: Path) -> dict[str, int]:
             print(f"✗ Neplatné hodnocení: {filename} = {rating} (musí být 1–5)")
             sys.exit(1)
 
-    if not ratings:
-        print("✗ ratings.json je prázdný (0 fotek k aplikaci).")
-        print("  Doplň hodnocení ve formátu {\"DSCF3987\": 4, ...}")
-        print("  Klíče začínající '_' se ignorují jako komentáře.")
-        sys.exit(1)
-
     return ratings
 
 
