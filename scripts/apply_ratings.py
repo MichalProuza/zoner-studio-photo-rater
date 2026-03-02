@@ -10,9 +10,9 @@ Hodnocení se zapisuje do CatItemMetadata.CIM_DataRating.
 Fotky se párují podle názvu souboru (CIM_DisplayNameWithExt).
 
 Použití:
-    python apply_ratings.py ratings.json
-    python apply_ratings.py ratings.json --catalog "C:\\Users\\...\\ZPSCatalog\\index.catalogue-zps"
-    python apply_ratings.py ratings.json --dry-run
+    python scripts/apply_ratings.py ratings.json
+    python scripts/apply_ratings.py ratings.json --catalog "C:\\Users\\...\\ZPSCatalog\\index.catalogue-zps"
+    python scripts/apply_ratings.py ratings.json --dry-run
 """
 
 import argparse
