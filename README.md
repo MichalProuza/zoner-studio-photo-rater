@@ -34,6 +34,49 @@ zoner-studio-photo-rater/
     └── apply_ratings.py
 ```
 
+
+## Rychlý start pro tvoji konkrétní složku
+
+Pokud chceš pracovat **jen** se složkou:
+
+```text
+C:\Users\michal.prouza\Pictures\2025-12 Sousedské setkání\2025-12-21
+```
+
+použij tento postup v PowerShellu:
+
+```powershell
+python -m venv .venv
+.venv\Scripts\activate
+pip install -U pip
+pip install -e .
+
+python scripts/extract_previews.py "C:\Users\michal.prouza\Pictures\2025-12 Sousedské setkání\2025-12-21" --output "C:\Users\michal.prouza\Pictures\2025-12 Sousedské setkání\2025-12-21\_previews" --max-size 800
+```
+
+Pak ohodnoť náhledy z `_previews` podle `prompts/RATING_PROMPT_V2.md` a ulož `ratings.json` do stejné složky.
+
+Pozn.: `apply_ratings.py` nyní načítá i JSON s UTF-8 BOM (časté při vytvoření souboru v PowerShellu).
+
+Kontrola bez zápisu:
+
+```powershell
+python scripts/apply_ratings.py "C:\Users\michal.prouza\Pictures\2025-12 Sousedské setkání\2025-12-21\ratings.json" --catalog "C:\Users\michal.prouza\AppData\Local\Zoner\ZPS X\ZPSCatalog\index.catalogue-zps" --dry-run
+```
+
+Ostrý zápis:
+
+```powershell
+python scripts/apply_ratings.py "C:\Users\michal.prouza\Pictures\2025-12 Sousedské setkání\2025-12-21\ratings.json" --catalog "C:\Users\michal.prouza\AppData\Local\Zoner\ZPS X\ZPSCatalog\index.catalogue-zps"
+```
+
+Nebo můžeš spustit připravený skript:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/run_zps_workflow.ps1 -DryRun
+# po kontrole bez --DryRun
+```
+
 ## Workflow
 
 ### 1) Extrakce náhledů z RAW

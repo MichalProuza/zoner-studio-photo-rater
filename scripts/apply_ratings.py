@@ -33,8 +33,13 @@ DEFAULT_CATALOG = (
 
 def load_ratings(path: Path) -> dict[str, int]:
     """Načte ratings.json, vrátí {filename_bez_přípony: hodnocení}."""
-    with open(path, encoding="utf-8") as f:
-        data = json.load(f)
+    try:
+        # utf-8-sig toleruje BOM, který často přidá Windows PowerShell
+        with open(path, encoding="utf-8-sig") as f:
+            data = json.load(f)
+    except json.JSONDecodeError as e:
+        print(f"✗ Neplatný JSON v souboru {path}: {e}")
+        sys.exit(1)
 
     # Odfiltrovat komentáře
     ratings = {k: v for k, v in data.items() if not k.startswith("_")}
