@@ -7,8 +7,8 @@ bez nutnosti renderování. Většina RAW formátů (RAF, CR2, NEF, ARW, DNG...)
 obsahuje plnorozlišení JPEG náhled.
 
 Použití:
-    python extract_previews.py /cesta/k/raw --output /tmp/zps_previews
-    python extract_previews.py /cesta/k/raw --max-size 1024 --output ./previews
+    python scripts/extract_previews.py /cesta/k/raw --output /tmp/zps_previews
+    python scripts/extract_previews.py /cesta/k/raw --max-size 1024 --output ./previews
 """
 
 import argparse
