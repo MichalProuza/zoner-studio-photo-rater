@@ -10,9 +10,9 @@ Hodnocení se zapisuje do CatItemMetadata.CIM_DataRating.
 Fotky se párují podle názvu souboru (CIM_DisplayNameWithExt).
 
 Použití:
-    python apply_ratings.py ratings.json
-    python apply_ratings.py ratings.json --catalog "C:\\Users\\...\\ZPSCatalog\\index.catalogue-zps"
-    python apply_ratings.py ratings.json --dry-run
+    python scripts/apply_ratings.py ratings.json
+    python scripts/apply_ratings.py ratings.json --catalog "C:\\Users\\...\\ZPSCatalog\\index.catalogue-zps"
+    python scripts/apply_ratings.py ratings.json --dry-run
 """
 
 import argparse
@@ -33,8 +33,13 @@ DEFAULT_CATALOG = (
 
 def load_ratings(path: Path) -> dict[str, int]:
     """Načte ratings.json, vrátí {filename_bez_přípony: hodnocení}."""
-    with open(path, encoding="utf-8") as f:
-        data = json.load(f)
+    try:
+        # utf-8-sig toleruje BOM, který často přidá Windows PowerShell
+        with open(path, encoding="utf-8-sig") as f:
+            data = json.load(f)
+    except json.JSONDecodeError as e:
+        print(f"✗ Neplatný JSON v souboru {path}: {e}")
+        sys.exit(1)
 
     # Odfiltrovat komentáře
     ratings = {k: v for k, v in data.items() if not k.startswith("_")}
