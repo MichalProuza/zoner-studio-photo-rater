@@ -57,6 +57,7 @@ python scripts/extract_previews.py "C:\Users\michal.prouza\Pictures\2025-12 Sous
 Pak ohodnoť náhledy z `_previews` podle `prompts/RATING_PROMPT_V2.md` a ulož `ratings.json` do stejné složky.
 
 Pozn.: `apply_ratings.py` nyní načítá i JSON s UTF-8 BOM (časté při vytvoření souboru v PowerShellu).
+Pozn.: pokud je `ratings.json` prázdný (`{}`), skript skončí chybou, aby nedošlo k tichému no-op zápisu.
 
 Kontrola bez zápisu:
 
