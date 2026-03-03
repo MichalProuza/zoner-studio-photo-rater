@@ -5,7 +5,7 @@ param(
     [string]$CatalogPath = 'C:\Users\michal.prouza\AppData\Local\Zoner\ZPS X\ZPSCatalog\index.catalogue-zps',
     [switch]$Recursive,
     [switch]$DryRun,
-    [switch]$WriteOnly,
+    [switch]$WriteOnly,   # Přeskočí extrakci náhledů, rovnou aplikuje ratings.json
     [int]$MaxSize = 800
 )
 
@@ -28,6 +28,7 @@ if (!$WriteOnly) {
         '{}' | Set-Content -Path $RatingsPath -Encoding UTF8
     }
 
+if (-not $WriteOnly) {
     $extractCmd = @('python', 'scripts/extract_previews.py', $SourceDir, '--output', $PreviewDir, '--max-size', "$MaxSize")
     if ($Recursive) { $extractCmd += '--recursive' }
 
@@ -36,13 +37,11 @@ if (!$WriteOnly) {
 
     Write-Host "`nNyní ohodnoť náhledy dle prompts/RATING_PROMPT_V2.md a ulož výsledky do: $RatingsPath" -ForegroundColor Yellow
     Read-Host 'Až bude ratings.json připravený, stiskni Enter pro pokračování k zápisu hodnocení'
+} else {
+    Write-Host "`n[Přeskočena extrakce náhledů — -WriteOnly]" -ForegroundColor DarkGray
 }
 
-if (!(Test-Path $RatingsPath)) {
-    throw "ratings.json neexistuje: $RatingsPath"
-}
-
-$applyCmd = @('python', 'scripts/apply_ratings.py', $RatingsPath, '--catalog', $CatalogPath)
+$applyCmd = @('python', 'scripts/apply_ratings.py', $RatingsPath, '--catalog', $CatalogPath, '--source-dir', $SourceDir)
 if ($DryRun) { $applyCmd += '--dry-run' }
 
 $step = if ($WriteOnly) { '[1/1]' } else { '[2/2]' }
