@@ -5,6 +5,7 @@ param(
     [string]$CatalogPath = 'C:\Users\michal.prouza\AppData\Local\Zoner\ZPS X\ZPSCatalog\index.catalogue-zps',
     [switch]$Recursive,
     [switch]$DryRun,
+    [switch]$WriteOnly,   # Přeskočí extrakci náhledů, rovnou aplikuje ratings.json
     [int]$MaxSize = 800
 )
 
@@ -25,14 +26,18 @@ if (!(Test-Path $RatingsPath)) {
     '{}' | Set-Content -Path $RatingsPath -Encoding UTF8
 }
 
-$extractCmd = @('python', 'scripts/extract_previews.py', $SourceDir, '--output', $PreviewDir, '--max-size', "$MaxSize")
-if ($Recursive) { $extractCmd += '--recursive' }
+if (-not $WriteOnly) {
+    $extractCmd = @('python', 'scripts/extract_previews.py', $SourceDir, '--output', $PreviewDir, '--max-size', "$MaxSize")
+    if ($Recursive) { $extractCmd += '--recursive' }
 
-Write-Host "`n[1/2] Extrakce náhledů..." -ForegroundColor Green
-& $extractCmd[0] $extractCmd[1..($extractCmd.Count - 1)]
+    Write-Host "`n[1/2] Extrakce náhledů..." -ForegroundColor Green
+    & $extractCmd[0] $extractCmd[1..($extractCmd.Count - 1)]
 
-Write-Host "`nNyní ohodnoť náhledy dle prompts/RATING_PROMPT_V2.md a ulož výsledky do: $RatingsPath" -ForegroundColor Yellow
-Read-Host 'Až bude ratings.json připravený, stiskni Enter pro pokračování k zápisu hodnocení'
+    Write-Host "`nNyní ohodnoť náhledy dle prompts/RATING_PROMPT_V2.md a ulož výsledky do: $RatingsPath" -ForegroundColor Yellow
+    Read-Host 'Až bude ratings.json připravený, stiskni Enter pro pokračování k zápisu hodnocení'
+} else {
+    Write-Host "`n[Přeskočena extrakce náhledů — -WriteOnly]" -ForegroundColor DarkGray
+}
 
 $applyCmd = @('python', 'scripts/apply_ratings.py', $RatingsPath, '--catalog', $CatalogPath, '--source-dir', $SourceDir)
 if ($DryRun) { $applyCmd += '--dry-run' }
