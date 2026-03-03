@@ -66,7 +66,8 @@ zoner-studio-photo-rater/
 └── scripts/
     ├── extract_previews.py        # Extrakce JPEG náhledů z RAW souborů
     ├── apply_ratings.py           # Zápis hodnocení do ZPS X katalogu
-    └── run_zps_workflow.ps1       # PowerShell orchestrace celého workflow
+    ├── run_zps_workflow.ps1       # PowerShell orchestrace celého workflow
+    └── run_zps_workflow.cmd       # CMD wrapper (obchází ExecutionPolicy)
 ```
 
 ---
@@ -390,19 +391,24 @@ Automatizuje celý workflow v jednom spuštění: extrakce → čekání na hodn
 
 #### Použití
 
+Nejjednodušší způsob — přes `.cmd` wrapper (nevyžaduje změnu ExecutionPolicy):
+
 ```powershell
 # Základní spuštění (dry-run pro kontrolu)
-powershell -ExecutionPolicy Bypass -File scripts/run_zps_workflow.ps1 -DryRun
+scripts\run_zps_workflow.cmd -DryRun
 
 # Ostrý zápis
-powershell -ExecutionPolicy Bypass -File scripts/run_zps_workflow.ps1
+scripts\run_zps_workflow.cmd
 
 # S vlastní složkou
-powershell -ExecutionPolicy Bypass -File scripts/run_zps_workflow.ps1 `
-    -SourceDir "C:\Fotky\2025-03-Akce" `
-    -PreviewDir "C:\Fotky\2025-03-Akce\_previews" `
-    -RatingsPath "C:\Fotky\2025-03-Akce\ratings.json" `
-    -MaxSize 1200
+scripts\run_zps_workflow.cmd -SourceDir "C:\Fotky\2025-03-Akce" -PreviewDir "C:\Fotky\2025-03-Akce\_previews" -RatingsPath "C:\Fotky\2025-03-Akce\ratings.json" -MaxSize 1200
+```
+
+Alternativně přímo přes PowerShell (vyžaduje `-ExecutionPolicy Bypass`):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/run_zps_workflow.ps1 -DryRun
+powershell -ExecutionPolicy Bypass -File scripts/run_zps_workflow.ps1
 ```
 
 #### Průběh
