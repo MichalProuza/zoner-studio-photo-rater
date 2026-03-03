@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
 """
-Aplikace hodnocení z ratings.json do ZPS X katalogu.
+Aplikace hodnocení z ratings.json do ZPS X katalogu a XMP sidecar souborů.
 
 Schéma ZPS X katalogu (index.catalogue-zps = SQLite):
   - CatItemBasic: CUID (PK), CIB_OriginalUniPath, CIB_NormalizedUniPath
   - CatItemMetadata: CUID (PK/FK), CIM_DisplayNameWithExt, CIM_DataRating (hvězdičky)
 
-Hodnocení se zapisuje do CatItemMetadata.CIM_DataRating.
-Fotky se párují podle názvu souboru (CIM_DisplayNameWithExt).
+Hodnocení se zapisuje do:
+  1. CatItemMetadata.CIM_DataRating (katalog ZPS X)
+  2. XMP sidecar souborů vedle originálních fotek (xmp:Rating)
+
+ZPS X čte hodnocení primárně z metadat souborů (XMP), katalog slouží jen jako cache.
+Proto je zápis do XMP sidecar souborů nezbytný, aby se hvězdičky zobrazily.
 
 Použití:
     python scripts/apply_ratings.py ratings.json
@@ -17,6 +21,7 @@ Použití:
 
 import argparse
 import json
+import re
 import shutil
 import sqlite3
 import sys
@@ -66,13 +71,72 @@ def print_summary(ratings: dict[str, int]):
     print()
 
 
+XMP_TEMPLATE = """\
+<?xml version="1.0" encoding="UTF-8"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+    <rdf:Description rdf:about=""
+      xmlns:xmp="http://ns.adobe.com/xap/1.0/"
+      xmp:Rating="{rating}"/>
+  </rdf:RDF>
+</x:xmpmeta>
+"""
+
+
+def write_xmp_rating(file_path: Path, rating: int, dry_run: bool = False) -> bool:
+    """Zapíše nebo aktualizuje xmp:Rating v XMP sidecar souboru."""
+    xmp_path = file_path.with_suffix(".xmp")
+
+    try:
+        if xmp_path.exists():
+            content = xmp_path.read_text(encoding="utf-8")
+
+            # Aktualizovat existující xmp:Rating
+            new_content, count = re.subn(
+                r'(xmp:Rating=")[^"]*(")',
+                rf"\g<1>{rating}\2",
+                content,
+            )
+
+            if count == 0:
+                # Rating neexistuje — přidat do prvního rdf:Description
+                if "xmlns:xmp=" not in content:
+                    new_content = re.sub(
+                        r"(<rdf:Description\b)",
+                        r'\1 xmlns:xmp="http://ns.adobe.com/xap/1.0/"',
+                        content,
+                        count=1,
+                    )
+                else:
+                    new_content = content
+                new_content = re.sub(
+                    r"(<rdf:Description\b[^/>]*)",
+                    rf'\1\n      xmp:Rating="{rating}"',
+                    new_content,
+                    count=1,
+                )
+
+            if not dry_run:
+                xmp_path.write_text(new_content, encoding="utf-8")
+        else:
+            if not dry_run:
+                xmp_path.write_text(
+                    XMP_TEMPLATE.format(rating=rating), encoding="utf-8"
+                )
+
+        return True
+    except OSError as e:
+        print(f"  ⚠ XMP chyba pro {file_path.name}: {e}")
+        return False
+
+
 def apply_ratings(
     ratings: dict[str, int],
     catalog_path: Path,
     dry_run: bool = False,
 ):
     """
-    Zapíše hodnocení do ZPS X katalogu.
+    Zapíše hodnocení do ZPS X katalogu a XMP sidecar souborů.
 
     Párování: ratings.json obsahuje názvy bez přípony (např. "DSCF3987").
     V katalogu hledáme CIM_DisplayNameWithExt LIKE 'DSCF3987.%'
@@ -92,9 +156,13 @@ def apply_ratings(
         conn.close()
         sys.exit(1)
 
+    has_basic = "CatItemBasic" in tables
+
     updated = 0
     not_found = 0
     unchanged = 0
+    xmp_written = 0
+    xmp_failed = 0
 
     for filename, new_rating in ratings.items():
         # Hledání fotky podle názvu (bez přípony → LIKE pattern)
@@ -104,14 +172,27 @@ def apply_ratings(
         else:
             pattern = f"{filename}.%"
 
-        cur.execute(
-            """
-            SELECT m.CUID, m.CIM_DisplayNameWithExt, m.CIM_DataRating
-            FROM CatItemMetadata m
-            WHERE m.CIM_DisplayNameWithExt LIKE ?
-            """,
-            (pattern,),
-        )
+        if has_basic:
+            cur.execute(
+                """
+                SELECT m.CUID, m.CIM_DisplayNameWithExt, m.CIM_DataRating,
+                       b.CIB_OriginalUniPath
+                FROM CatItemMetadata m
+                LEFT JOIN CatItemBasic b ON m.CUID = b.CUID
+                WHERE m.CIM_DisplayNameWithExt LIKE ?
+                """,
+                (pattern,),
+            )
+        else:
+            cur.execute(
+                """
+                SELECT m.CUID, m.CIM_DisplayNameWithExt, m.CIM_DataRating,
+                       NULL AS CIB_OriginalUniPath
+                FROM CatItemMetadata m
+                WHERE m.CIM_DisplayNameWithExt LIKE ?
+                """,
+                (pattern,),
+            )
         rows = cur.fetchall()
 
         if not rows:
@@ -123,6 +204,7 @@ def apply_ratings(
             cuid = row["CUID"]
             current_name = row["CIM_DisplayNameWithExt"]
             current_rating = row["CIM_DataRating"]
+            original_path = row["CIB_OriginalUniPath"]
 
             if current_rating == new_rating:
                 print(f"  – {current_name} již má {new_rating}⭐, přeskakuji")
@@ -140,6 +222,22 @@ def apply_ratings(
                 )
                 print(f"  ✓ {current_name}: {old_str} → {new_rating}⭐")
 
+            # Zapsat XMP sidecar vedle originálního souboru
+            if original_path:
+                file_path = Path(original_path)
+                if write_xmp_rating(file_path, new_rating, dry_run):
+                    xmp_path = file_path.with_suffix(".xmp")
+                    if dry_run:
+                        print(f"    [DRY] XMP → {xmp_path}")
+                    else:
+                        print(f"    XMP → {xmp_path}")
+                    xmp_written += 1
+                else:
+                    xmp_failed += 1
+            else:
+                print(f"    ⚠ Cesta k souboru nenalezena, XMP nevytvořen")
+                xmp_failed += 1
+
             updated += 1
 
     if not dry_run:
@@ -152,6 +250,15 @@ def apply_ratings(
     print(f"  – Beze změny:    {unchanged}")
     if not_found:
         print(f"  ⚠ Nenalezeno:    {not_found}")
+    print(f"  XMP zapsáno:     {xmp_written}")
+    if xmp_failed:
+        print(f"  XMP selhalo:     {xmp_failed}")
+
+    if xmp_written and not dry_run:
+        print(
+            "\n💡 V ZPS X spusť Aktualizaci metadat (Ctrl+Shift+M)"
+            " pro načtení hodnocení z XMP souborů."
+        )
 
 
 def main():

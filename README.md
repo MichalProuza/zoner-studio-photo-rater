@@ -303,7 +303,15 @@ Distribuce hodnocení:
 
 **Skript:** `scripts/apply_ratings.py`
 
-Načte `ratings.json` a zapíše hodnocení do SQLite katalogu Zoner Photo Studio X.
+Načte `ratings.json` a zapíše hodnocení do:
+1. **SQLite katalogu** ZPS X (`CatItemMetadata.CIM_DataRating`)
+2. **XMP sidecar souborů** vedle originálních fotek (`xmp:Rating`)
+
+ZPS X čte hodnocení primárně z metadat souborů (XMP), katalog slouží jen jako cache.
+Proto skript vytváří/aktualizuje XMP sidecar soubory (např. `DSCF3987.xmp` vedle `DSCF3987.RAF`),
+aby se hvězdičky spolehlivě zobrazily v ZPS X.
+
+Po zápisu spusť v ZPS X **Aktualizaci metadat** (`Ctrl+Shift+M`) pro načtení hodnocení z XMP.
 
 #### Použití
 
@@ -350,7 +358,9 @@ Záloha: index.catalogue-zps.bak
 ⚠️  Ujisti se, že Zoner Photo Studio X je ZAVŘENÝ!
 
   ✓ DSCF3987.RAF: bez hodnocení → 4⭐
+    XMP → C:\Pictures\2025-12-21\DSCF3987.xmp
   ✓ DSCF3988.RAF: 3⭐ → 4⭐
+    XMP → C:\Pictures\2025-12-21\DSCF3988.xmp
   – DSCF3989.RAF již má 5⭐, přeskakuji
   ⚠ Nenalezeno: DSCF3990
 
@@ -358,6 +368,9 @@ Výsledek:
   ✓ Aktualizováno: 45
   – Beze změny:    1
   ⚠ Nenalezeno:    1
+  XMP zapsáno:     44
+
+💡 V ZPS X spusť Aktualizaci metadat (Ctrl+Shift+M) pro načtení hodnocení z XMP souborů.
 ```
 
 #### Párování souborů
@@ -506,13 +519,19 @@ C:\Users\<uživatel>\AppData\Local\Zoner\ZPS X\ZPSCatalog\index.catalogue-zps
 | `CIB_OriginalUniPath` | TEXT | Plná cesta k souboru |
 | `CIB_NormalizedUniPath` | TEXT | Normalizovaná cesta |
 
-Skript `apply_ratings.py` zapisuje hodnoty výhradně do `CatItemMetadata.CIM_DataRating`.
+Skript `apply_ratings.py` zapisuje do `CatItemMetadata.CIM_DataRating` (katalog)
+a zároveň do **XMP sidecar souborů** vedle originálních fotek (`xmp:Rating`).
+Cesta k souboru se zjistí z `CatItemBasic.CIB_OriginalUniPath`.
 
 ---
 
 ## Důležité poznámky
 
 - **Zavři Zoner Photo Studio X** před zápisem do katalogu — otevřená aplikace katalog uzamkne.
+- **XMP sidecar soubory** — skript vytváří/aktualizuje `.xmp` soubory vedle originálních
+  RAW fotek s hodnocením (`xmp:Rating`). ZPS X čte hodnocení primárně z těchto souborů.
+- **Aktualizace metadat** — po zápisu otevři ZPS X a spusť `Ctrl+Shift+M` (Aktualizace metadat),
+  aby se hodnocení z XMP souborů načetla do katalogu.
 - **Záloha** — skript automaticky vytváří zálohu `*.catalogue-zps.bak` před každým zápisem.
   Zálohu lze přeskočit pomocí `--no-backup`.
 - **Dry-run** — vždy doporučujeme nejdřív spustit s `--dry-run`, zkontrolovat výstup
