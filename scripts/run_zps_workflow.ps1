@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$SourceDir = 'C:\Users\michal.prouza\Pictures\2025-10 Survivor\2025-10-30',
     [string]$PreviewDir = 'C:\Users\michal.prouza\Pictures\2025-10 Survivor\2025-10-30\_previews',
     [string]$RatingsPath = 'C:\Users\michal.prouza\Pictures\2025-10 Survivor\2025-10-30\ratings.json',
