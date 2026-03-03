@@ -16,6 +16,7 @@ Python nástroj pro automatizovaný workflow:
 - [Workflow krok za krokem](#workflow-krok-za-krokem)
   - [1. Extrakce náhledů](#1-extrakce-náhledů)
   - [2. Hodnocení náhledů](#2-hodnocení-náhledů)
+  - [2b. Automatické AI hodnocení](#2b-automatické-ai-hodnocení)
   - [3. Zápis do katalogu](#3-zápis-do-katalogu)
 - [PowerShell orchestrace](#powershell-orchestrace)
 - [Formát ratings.json](#formát-ratingsjson)
@@ -212,6 +213,88 @@ DŮVOD: Subjekt mimo zaostření, výraz bez výrazu.
 ```
 
 Na konci každé dávky AI přidá JSON souhrn, který zkopíruješ do `ratings.json`.
+
+---
+
+### 2b. Automatické AI hodnocení
+
+**Skript:** `scripts/rate_with_ai.py`
+
+Automaticky odesílá náhledy na Anthropic API (Claude) a ukládá hodnocení do `ratings.json`.
+Náhledy jsou odesílány po dávkách, výsledky se průběžně ukládají — přerušení nevadí.
+
+#### Předpoklady
+
+```bash
+pip install anthropic
+```
+
+```powershell
+# Windows
+set ANTHROPIC_API_KEY=sk-ant-...
+
+# Linux/macOS
+export ANTHROPIC_API_KEY=sk-ant-...
+```
+
+API klíč získáš na [console.anthropic.com](https://console.anthropic.com/).
+
+#### Použití
+
+```bash
+python scripts/rate_with_ai.py <previews_dir> [volitelné argumenty]
+```
+
+#### Argumenty
+
+| Argument | Zkratka | Výchozí | Popis |
+|---|---|---|---|
+| `previews_dir` | — | (povinné) | Složka s JPEG náhledy |
+| `--output` | `-o` | `ratings.json` | Výstupní soubor |
+| `--batch-size` | `-b` | `20` | Počet fotek v jedné API žádosti |
+| `--model` | `-m` | `claude-sonnet-4-6` | ID modelu Claude |
+| `--resume` | — | vypnuto | Přeskočit již ohodnocené fotky |
+
+#### Příklady
+
+```powershell
+# Základní hodnocení
+python scripts/rate_with_ai.py "C:\Pictures\2025-12-21\_previews" `
+    --output "C:\Pictures\2025-12-21\ratings.json"
+
+# Menší dávky (při problémech s timeoutem)
+python scripts/rate_with_ai.py ./previews --batch-size 10 --output ratings.json
+
+# Pokračovat po přerušení
+python scripts/rate_with_ai.py ./previews --output ratings.json --resume
+```
+
+#### Výstup
+
+```
+Celkem fotek:  252
+Počet dávek:   13 × max 20
+Model:         claude-sonnet-4-6
+Výstup:        ratings.json
+
+[1/13] Hodnotím fotky 1–20...
+  ✓ 20 hodnocení uloženo (20 celkem)
+[2/13] Hodnotím fotky 21–40...
+  ✓ 20 hodnocení uloženo (40 celkem)
+...
+[13/13] Hodnotím fotky 241–252...
+  ✓ 12 hodnocení uloženo (252 celkem)
+
+Hotovo! Ohodnoceno: 252 fotek
+Výsledek uložen: ratings.json
+
+Distribuce hodnocení:
+  5⭐    8 ( 3.2%)  █
+  4⭐   62 (24.6%)  ████████████
+  3⭐   98 (38.9%)  ███████████████████
+  2⭐   71 (28.2%)  ██████████████
+  1⭐   13 ( 5.2%)  ██
+```
 
 ---
 
