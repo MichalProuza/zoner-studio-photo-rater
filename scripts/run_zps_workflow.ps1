@@ -34,7 +34,7 @@ Write-Host "`n[1/2] Extrakce náhledů..." -ForegroundColor Green
 Write-Host "`nNyní ohodnoť náhledy dle prompts/RATING_PROMPT_V2.md a ulož výsledky do: $RatingsPath" -ForegroundColor Yellow
 Read-Host 'Až bude ratings.json připravený, stiskni Enter pro pokračování k zápisu hodnocení'
 
-$applyCmd = @('python', 'scripts/apply_ratings.py', $RatingsPath, '--catalog', $CatalogPath)
+$applyCmd = @('python', 'scripts/apply_ratings.py', $RatingsPath, '--catalog', $CatalogPath, '--source-dir', $SourceDir)
 if ($DryRun) { $applyCmd += '--dry-run' }
 
 Write-Host "`n[2/2] Aplikace hodnocení do katalogu..." -ForegroundColor Green
