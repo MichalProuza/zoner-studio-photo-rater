@@ -18,7 +18,7 @@ Write-Host "RatingsPath: $RatingsPath"
 Write-Host "CatalogPath: $CatalogPath"
 if ($WriteOnly) { Write-Host "Režim:       jen Zápis do katalogu (-WriteOnly)" -ForegroundColor Yellow }
 
-if (!$WriteOnly) {
+if (-not $WriteOnly) {
     if (!(Test-Path $SourceDir)) {
         throw "SourceDir neexistuje: $SourceDir"
     }
@@ -28,7 +28,6 @@ if (!$WriteOnly) {
         '{}' | Set-Content -Path $RatingsPath -Encoding UTF8
     }
 
-if (-not $WriteOnly) {
     $extractCmd = @('python', 'scripts/extract_previews.py', $SourceDir, '--output', $PreviewDir, '--max-size', "$MaxSize")
     if ($Recursive) { $extractCmd += '--recursive' }
 
@@ -44,7 +43,7 @@ if (-not $WriteOnly) {
 $applyCmd = @('python', 'scripts/apply_ratings.py', $RatingsPath, '--catalog', $CatalogPath, '--source-dir', $SourceDir)
 if ($DryRun) { $applyCmd += '--dry-run' }
 
-$step = if ($WriteOnly) { '[1/1]' } else { '[2/2]' }
+$step = $(if ($WriteOnly) { '[1/1]' } else { '[2/2]' })
 Write-Host "`n$step Aplikace hodnocení do katalogu..." -ForegroundColor Green
 & $applyCmd[0] $applyCmd[1..($applyCmd.Count - 1)]
 
