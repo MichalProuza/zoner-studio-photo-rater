@@ -134,12 +134,14 @@ def apply_ratings(
     ratings: dict[str, int],
     catalog_path: Path,
     dry_run: bool = False,
+    source_dir: Path | None = None,
 ):
     """
     Zapíše hodnocení do ZPS X katalogu a XMP sidecar souborů.
 
     Párování: ratings.json obsahuje názvy bez přípony (např. "DSCF3987").
     V katalogu hledáme CIM_DisplayNameWithExt LIKE 'DSCF3987.%'
+    Pokud je zadán source_dir, omezíme hledání na fotky z dané složky.
     """
     conn = sqlite3.connect(str(catalog_path))
     conn.row_factory = sqlite3.Row
@@ -156,7 +158,11 @@ def apply_ratings(
         conn.close()
         sys.exit(1)
 
-    has_basic = "CatItemBasic" in tables
+    # Připravit pattern pro filtrování podle složky
+    dir_pattern = None
+    if source_dir is not None:
+        dir_pattern = str(source_dir).replace("/", "\\").rstrip("\\") + "\\"
+        print(f"Filtrování podle složky: {source_dir}\n")
 
     updated = 0
     not_found = 0
@@ -172,22 +178,21 @@ def apply_ratings(
         else:
             pattern = f"{filename}.%"
 
-        if has_basic:
+        if dir_pattern:
             cur.execute(
                 """
-                SELECT m.CUID, m.CIM_DisplayNameWithExt, m.CIM_DataRating,
-                       b.CIB_OriginalUniPath
+                SELECT m.CUID, m.CIM_DisplayNameWithExt, m.CIM_DataRating
                 FROM CatItemMetadata m
-                LEFT JOIN CatItemBasic b ON m.CUID = b.CUID
+                JOIN CatItemBasic b ON b.CUID = m.CUID
                 WHERE m.CIM_DisplayNameWithExt LIKE ?
+                  AND (b.CIB_OriginalUniPath LIKE ? OR b.CIB_NormalizedUniPath LIKE ?)
                 """,
-                (pattern,),
+                (pattern, f"%{dir_pattern}%", f"%{dir_pattern}%"),
             )
         else:
             cur.execute(
                 """
-                SELECT m.CUID, m.CIM_DisplayNameWithExt, m.CIM_DataRating,
-                       NULL AS CIB_OriginalUniPath
+                SELECT m.CUID, m.CIM_DisplayNameWithExt, m.CIM_DataRating
                 FROM CatItemMetadata m
                 WHERE m.CIM_DisplayNameWithExt LIKE ?
                 """,
@@ -278,6 +283,12 @@ def main():
         help="Jen zobrazit změny, nic nezapisovat",
     )
     parser.add_argument(
+        "--source-dir", "-s",
+        type=Path,
+        default=None,
+        help="Omezit párování na fotky z této složky (zabrání zápisu na stejně pojmenované fotky z jiných složek)",
+    )
+    parser.add_argument(
         "--no-backup",
         action="store_true",
         help="Nevytvářet zálohu katalogu",
@@ -311,7 +322,7 @@ def main():
     if not args.dry_run:
         print("⚠️  Ujisti se, že Zoner Photo Studio X je ZAVŘENÝ!\n")
 
-    apply_ratings(ratings, args.catalog, args.dry_run)
+    apply_ratings(ratings, args.catalog, args.dry_run, args.source_dir)
 
 
 if __name__ == "__main__":
