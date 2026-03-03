@@ -1,7 +1,7 @@
 param(
-    [string]$SourceDir = 'C:\Users\michal.prouza\Pictures\2025-12 Sousedské setkání\2025-12-21',
-    [string]$PreviewDir = 'C:\Users\michal.prouza\Pictures\2025-12 Sousedské setkání\2025-12-21\_previews',
-    [string]$RatingsPath = 'C:\Users\michal.prouza\Pictures\2025-12 Sousedské setkání\2025-12-21\ratings.json',
+    [string]$SourceDir = 'C:\Users\michal.prouza\Pictures\2025-10 Survivor\2025-10-30 ostatní sedí',
+    [string]$PreviewDir = 'C:\Users\michal.prouza\Pictures\2025-10 Survivor\2025-10-30 ostatní sedí\_previews',
+    [string]$RatingsPath = 'C:\Users\michal.prouza\Pictures\2025-10 Survivor\2025-10-30 ostatní sedí\ratings.json',
     [string]$CatalogPath = 'C:\Users\michal.prouza\AppData\Local\Zoner\ZPS X\ZPSCatalog\index.catalogue-zps',
     [switch]$Recursive,
     [switch]$DryRun,
