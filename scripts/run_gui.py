@@ -238,10 +238,16 @@ class App(tk.Tk):
             python, str(SCRIPTS_DIR / "rate_with_ai.py"),
             str(previews),
             "--output", str(ratings),
-            "--batch-size", "20",
+            "--batch-size", "5",
             "--resume",
         ]
         if not self._run_step("[2/3] Hodnocení pomocí Claude AI", cmd, env):
+            self._set_progress("Chyba v kroku 2")
+            self._set_running(False)
+            return
+
+        if not ratings.exists() or ratings.stat().st_size < 5:
+            self._log("✗  ratings.json chybí nebo je prázdný — hodnocení se nezdařilo.", "err")
             self._set_progress("Chyba v kroku 2")
             self._set_running(False)
             return

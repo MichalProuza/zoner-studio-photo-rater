@@ -282,6 +282,10 @@ def main() -> None:
     print(f"Výsledek uložen: {output_path}")
     print_distribution(ratings)
 
+    if not ratings:
+        print("✗ Žádné hodnocení nebylo uloženo — všechny dávky selhaly.", file=sys.stderr)
+        sys.exit(1)
+
 
 if __name__ == "__main__":
     main()
