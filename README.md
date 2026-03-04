@@ -5,6 +5,8 @@ Python nástroj pro automatizovaný workflow:
 2. **AI hodnocení** náhledů (1–5 hvězd) pomocí připraveného promptu
 3. **Zápis** hvězdiček do katalogu Zoner Photo Studio X
 
+> **Nejjednodušší způsob:** spusť `python scripts/run_gui.py`, vyber složku s fotkami a klikni na Spustit. Vše ostatní se provede automaticky.
+
 ---
 
 ## Obsah
@@ -12,7 +14,7 @@ Python nástroj pro automatizovaný workflow:
 - [Požadavky](#požadavky)
 - [Instalace](#instalace)
 - [Struktura projektu](#struktura-projektu)
-- [Rychlý start](#rychlý-start)
+- [Rychlý start — grafické rozhraní (GUI)](#rychlý-start--grafické-rozhraní-gui)
 - [Workflow krok za krokem](#workflow-krok-za-krokem)
   - [1. Extrakce náhledů](#1-extrakce-náhledů)
   - [2. Hodnocení náhledů](#2-hodnocení-náhledů)
@@ -64,37 +66,52 @@ zoner-studio-photo-rater/
 ├── prompts/
 │   └── RATING_PROMPT_V2.md       # Prompt pro AI hodnocení fotografií
 └── scripts/
+    ├── run_gui.py                 # ★ Grafické rozhraní — výběr složky + celý workflow
     ├── extract_previews.py        # Extrakce JPEG náhledů z RAW souborů
-    ├── apply_ratings.py           # Zápis hodnocení do ZPS X katalogu
+    ├── rate_with_ai.py            # Automatické AI hodnocení (Anthropic API)
+    ├── apply_ratings.py           # Zápis hodnocení do ZPS X katalogu / XMP
     ├── run_zps_workflow.ps1       # PowerShell orchestrace celého workflow
     └── run_zps_workflow.cmd       # CMD wrapper (obchází ExecutionPolicy)
 ```
 
 ---
 
-## Rychlý start
+## Rychlý start — grafické rozhraní (GUI)
+
+Nejjednodušší způsob použití — žádné příkazy v terminálu:
 
 ```powershell
-# 1. Aktivace prostředí a instalace
-python -m venv .venv
-.venv\Scripts\activate
-pip install -U pip && pip install -e .
+# 1. Instalace závislostí (jen jednou)
+pip install -e .
 
-# 2. Extrakce náhledů
-python scripts/extract_previews.py "C:\Users\michal.prouza\Pictures\2025-12-21" `
-    --output "C:\Users\michal.prouza\Pictures\2025-12-21\_previews"
-
-# 3. Ohodnoť náhledy (ručně nebo pomocí AI promptu) → ulož ratings.json
-
-# 4. Dry-run — zkontroluj, co se zapíše
-python scripts/apply_ratings.py "C:\Users\michal.prouza\Pictures\2025-12-21\ratings.json" `
-    --catalog "C:\Users\michal.prouza\AppData\Local\Zoner\ZPS X\ZPSCatalog\index.catalogue-zps" `
-    --dry-run
-
-# 5. Ostrý zápis
-python scripts/apply_ratings.py "C:\Users\michal.prouza\Pictures\2025-12-21\ratings.json" `
-    --catalog "C:\Users\michal.prouza\AppData\Local\Zoner\ZPS X\ZPSCatalog\index.catalogue-zps"
+# 2. Spuštění GUI
+python scripts/run_gui.py
 ```
+
+**Postup v GUI:**
+
+1. Klikni na **Vybrat…** a vyber složku s RAW fotkami
+2. Zadej svůj **Anthropic API klíč** (nebo ho nastav jako env proměnnou `ANTHROPIC_API_KEY`)
+3. Klikni na **▶ Spustit celý workflow**
+
+GUI automaticky provede všechny tři kroky:
+
+```
+[1/3] Extrakce náhledů ze RAW souborů  →  <složka>/_previews/
+[2/3] Hodnocení pomocí Claude AI        →  <složka>/ratings.json
+[3/3] Zápis hodnocení do XMP souborů   →  <složka>/*.xmp
+```
+
+Průběh každého kroku se zobrazuje v logu v reálném čase.
+
+Po dokončení otevři v ZPS X **Aktualizaci metadat** (`Ctrl+Shift+M`), aby se hvězdičky z XMP souborů načetly do katalogu.
+
+**Volitelné přepínače:**
+
+| Přepínač | Popis |
+|---|---|
+| Procházet podsložky | Zpracuje i RAW soubory ve vnořených složkách |
+| Dry run | Simuluje zápis do XMP bez skutečné změny souborů |
 
 ---
 
