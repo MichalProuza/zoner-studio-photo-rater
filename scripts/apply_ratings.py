@@ -14,9 +14,14 @@ ZPS X čte hodnocení primárně z metadat souborů (XMP), katalog slouží jen 
 Proto je zápis do XMP sidecar souborů nezbytný, aby se hvězdičky zobrazily.
 
 Použití:
+    # Zápis do katalogu + XMP (normální)
     python scripts/apply_ratings.py ratings.json
     python scripts/apply_ratings.py ratings.json --catalog "C:\\Users\\...\\ZPSCatalog\\index.catalogue-zps"
     python scripts/apply_ratings.py ratings.json --dry-run
+
+    # Zápis jen do XMP metadat (bez katalogu)
+    python scripts/apply_ratings.py ratings.json --xmp-only --source-dir "C:\\path\\to\\photos"
+    python scripts/apply_ratings.py ratings.json --xmp-only --source-dir "C:\\path\\to\\photos" --dry-run
 """
 
 import argparse
@@ -128,6 +133,71 @@ def write_xmp_rating(file_path: Path, rating: int, dry_run: bool = False) -> boo
     except OSError as e:
         print(f"  ⚠ XMP chyba pro {file_path.name}: {e}")
         return False
+
+
+def apply_xmp_only(
+    ratings: dict[str, int],
+    source_dir: Path,
+    dry_run: bool = False,
+):
+    """
+    Zapíše hodnocení jen do XMP sidecar souborů (bez katalogu).
+
+    Hledá fotky přímo na disku v source_dir a jejím poddirectories.
+    """
+    updated = 0
+    not_found = 0
+    xmp_written = 0
+    xmp_failed = 0
+
+    for filename, new_rating in ratings.items():
+        # Vytvořit vyhledávací pattern
+        if "." in filename:
+            # Mám příponou — hledám přesný název
+            search_pattern = filename
+        else:
+            # Bez přípony — hledám s libovolnou příponou
+            search_pattern = f"{filename}.*"
+
+        # Hledání na disku
+        found = False
+        for file_path in source_dir.rglob(search_pattern):
+            if not file_path.is_file():
+                continue
+
+            found = True
+            print(f"  ✓ {file_path.name}: bez hodnocení → {new_rating}⭐")
+
+            # Zapsat XMP
+            if write_xmp_rating(file_path, new_rating, dry_run):
+                xmp_path = file_path.with_suffix(".xmp")
+                if dry_run:
+                    print(f"    [DRY] XMP → {xmp_path}")
+                else:
+                    print(f"    XMP → {xmp_path}")
+                xmp_written += 1
+            else:
+                xmp_failed += 1
+
+            updated += 1
+
+        if not found:
+            print(f"  ⚠ Nenalezeno: {filename}")
+            not_found += 1
+
+    print(f"\nVýsledek:")
+    print(f"  ✓ Aktualizováno: {updated}")
+    if not_found:
+        print(f"  ⚠ Nenalezeno:    {not_found}")
+    print(f"  XMP zapsáno:     {xmp_written}")
+    if xmp_failed:
+        print(f"  XMP selhalo:     {xmp_failed}")
+
+    if xmp_written and not dry_run:
+        print(
+            "\n💡 V ZPS X spusť Aktualizaci metadat (Ctrl+Shift+M)"
+            " pro načtení hodnocení z XMP souborů."
+        )
 
 
 def apply_ratings(
@@ -319,6 +389,11 @@ def main():
         action="store_true",
         help="Nevytvářet zálohu katalogu",
     )
+    parser.add_argument(
+        "--xmp-only",
+        action="store_true",
+        help="Zapsat jen do XMP metadat, přeskočit katalog (nevyžaduje --catalog)",
+    )
 
     args = parser.parse_args()
 
@@ -326,29 +401,45 @@ def main():
         print(f"✗ Soubor neexistuje: {args.ratings}")
         sys.exit(1)
 
-    if not args.catalog.exists():
-        print(f"✗ Katalog neexistuje: {args.catalog}")
-        print(f"  Zkus zadat cestu přes --catalog")
-        sys.exit(1)
+    if args.xmp_only:
+        if not args.source_dir:
+            print("✗ --xmp-only vyžaduje --source-dir")
+            sys.exit(1)
+        if not args.source_dir.exists():
+            print(f"✗ Složka neexistuje: {args.source_dir}")
+            sys.exit(1)
+    else:
+        if not args.catalog.exists():
+            print(f"✗ Katalog neexistuje: {args.catalog}")
+            print(f"  Zkus zadat cestu přes --catalog")
+            sys.exit(1)
 
     # Načíst hodnocení
     ratings = load_ratings(args.ratings)
     print_summary(ratings)
 
-    # Záloha
-    if not args.no_backup and not args.dry_run:
-        backup = args.catalog.with_suffix(".catalogue-zps.bak")
-        shutil.copy2(args.catalog, backup)
-        print(f"Záloha: {backup}\n")
+    if args.xmp_only:
+        # Režim jen XMP
+        if args.dry_run:
+            print("[DRY RUN — žádné změny nebudou provedeny]\n")
 
-    if args.dry_run:
-        print("[DRY RUN — žádné změny nebudou provedeny]\n")
+        apply_xmp_only(ratings, args.source_dir, args.dry_run)
+    else:
+        # Normální režim — katalog + XMP
+        # Záloha
+        if not args.no_backup and not args.dry_run:
+            backup = args.catalog.with_suffix(".catalogue-zps.bak")
+            shutil.copy2(args.catalog, backup)
+            print(f"Záloha: {backup}\n")
 
-    # ⚠️ DŮLEŽITÉ: ZPS X musí být ZAVŘENÝ při zápisu do katalogu!
-    if not args.dry_run:
-        print("⚠️  Ujisti se, že Zoner Photo Studio X je ZAVŘENÝ!\n")
+        if args.dry_run:
+            print("[DRY RUN — žádné změny nebudou provedeny]\n")
 
-    apply_ratings(ratings, args.catalog, args.dry_run, args.source_dir)
+        # ⚠️ DŮLEŽITÉ: ZPS X musí být ZAVŘENÝ při zápisu do katalogu!
+        if not args.dry_run:
+            print("⚠️  Ujisti se, že Zoner Photo Studio X je ZAVŘENÝ!\n")
+
+        apply_ratings(ratings, args.catalog, args.dry_run, args.source_dir)
 
 
 if __name__ == "__main__":

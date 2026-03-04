@@ -324,11 +324,15 @@ python scripts/apply_ratings.py <ratings> [volitelné argumenty]
 | Argument | Zkratka | Výchozí | Popis |
 |---|---|---|---|
 | `ratings` | — | (povinné) | Cesta k `ratings.json` |
-| `--catalog` | `-c` | `%LOCALAPPDATA%\Zoner\ZPS X\ZPSCatalog\index.catalogue-zps` | Cesta ke katalogu ZPS X |
+| `--catalog` | `-c` | `%LOCALAPPDATA%\Zoner\ZPS X\ZPSCatalog\index.catalogue-zps` | Cesta ke katalogu ZPS X *(ignoruje se s `--xmp-only`)* |
+| `--source-dir` | `-s` | `None` | Omezit párování na soubory z dané složky; s `--xmp-only` vyhledat fotky na disku |
 | `--dry-run` | `-n` | vypnuto | Jen zobrazit změny, nic nezapisovat |
-| `--no-backup` | — | záloha ON | Nevytvářet zálohu katalogu před zápisem |
+| `--no-backup` | — | záloha ON | Nevytvářet zálohu katalogu |
+| `--xmp-only` | — | vypnuto | **Zapsat jen do XMP metadat, přeskočit katalog** |
 
 #### Příklady
+
+**Zápis do katalogu (normální režim):**
 
 ```bash
 # Dry-run (bezpečné testování)
@@ -340,6 +344,22 @@ python scripts/apply_ratings.py ratings.json \
 
 # Zápis bez zálohy
 python scripts/apply_ratings.py ratings.json --no-backup
+```
+
+**Zápis jen do XMP metadat (`--xmp-only`):**
+
+Užitečné když katalog není dostupný nebo fotky nejsou v katalogu registrovány.
+Skript pak hledá fotky přímo na disku a zapisuje hodnocení do XMP sidecar souborů.
+
+```bash
+# Dry-run (kontrola před zápisem)
+python scripts/apply_ratings.py ratings.json --xmp-only --source-dir "C:\Fotky\2025-03" --dry-run
+
+# Ostrý zápis
+python scripts/apply_ratings.py ratings.json --xmp-only --source-dir "C:\Fotky\2025-03"
+
+# Rekurzivně i v podsložkách
+python scripts/apply_ratings.py ratings.json --xmp-only --source-dir "C:\Fotky"
 ```
 
 #### Výstup
@@ -538,3 +558,8 @@ Cesta k souboru se zjistí z `CatItemBasic.CIB_OriginalUniPath`.
   a teprve pak provést ostrý zápis.
 - **Párování souborů** — pokud skript hlásí „Nenalezeno", zkontroluj, zda jsou soubory
   importovány v ZPS X a katalog je aktuální.
+- **Bez katalogu (`--xmp-only`)** — pokud katalog není dostupný nebo soubory nejsou registrovány:
+  - Skript vyhledá fotky přímo na disku v `--source-dir`
+  - Zapíše hodnocení jen do XMP metadat (`.xmp` soubory)
+  - Negeneruje zálohу katalogu (neneed)
+  - Po zápisu můžeš soubory importovat do ZPS X a spustit aktualizaci metadat (`Ctrl+Shift+M`)
