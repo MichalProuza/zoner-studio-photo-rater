@@ -216,6 +216,7 @@ class App(tk.Tk):
 
         env = os.environ.copy()
         env["ANTHROPIC_API_KEY"] = api_key
+        env["PYTHONUTF8"] = "1"  # Windows: všechny subprocesy píší UTF-8 do stdout
 
         # ── Step 1: Extract previews ───────────────────────────────────
         cmd = [
