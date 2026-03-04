@@ -1,4 +1,4 @@
-# ZPS X Photo Rater — automatické hodnocení fotek pomocí AI
+# Zoner Studio Photo Rater — automatické hodnocení fotek pomocí AI
 
 Python nástroj pro automatizovaný workflow:
 1. **Extrakce** JPEG náhledů z RAW souborů
@@ -103,7 +103,7 @@ GUI automaticky provede všechny tři kroky:
 
 Průběh každého kroku se zobrazuje v logu v reálném čase.
 
-Po dokončení otevři v ZPS X **Aktualizaci metadat** (`Ctrl+Shift+M`), aby se hvězdičky z XMP souborů načetly do ZPS X.
+Po dokončení otevři v Zoner Studio **Aktualizaci metadat** (`Ctrl+Shift+M`), aby se hvězdičky z XMP souborů načetly do Zoner Studio.
 
 **Volitelné přepínače:**
 
@@ -322,7 +322,7 @@ Distribuce hodnocení:
 Načte `ratings.json` a zapíše hodnocení do **XMP sidecar souborů** vedle originálních fotek (`xmp:Rating`).
 Skript hledá fotky přímo na disku v `--source-dir` a vytváří/aktualizuje soubory jako `DSCF3987.xmp` vedle `DSCF3987.RAF`.
 
-Po zápisu spusť v ZPS X **Aktualizaci metadat** (`Ctrl+Shift+M`) pro načtení hodnocení z XMP.
+Po zápisu spusť v Zoner Studio **Aktualizaci metadat** (`Ctrl+Shift+M`) pro načtení hodnocení z XMP.
 
 #### Použití
 
@@ -375,7 +375,7 @@ Výsledek:
   ⚠ Nenalezeno:    1
   XMP zapsáno:     44
 
-💡 V ZPS X spusť Aktualizaci metadat (Ctrl+Shift+M) pro načtení hodnocení z XMP souborů.
+💡 V Zoner Studio spusť Aktualizaci metadat (Ctrl+Shift+M) pro načtení hodnocení z XMP souborů.
 ```
 
 ---
@@ -422,7 +422,7 @@ powershell -ExecutionPolicy Bypass -File scripts/run_zps_workflow.ps1
 #### Průběh
 
 ```
-== ZPS X Photo Rater workflow ==
+== Zoner Studio Photo Rater workflow ==
 SourceDir:   C:\Users\michal.prouza\Pictures\2025-12-21
 PreviewDir:  C:\Users\michal.prouza\Pictures\2025-12-21\_previews
 RatingsPath: C:\Users\michal.prouza\Pictures\2025-12-21\ratings.json
@@ -489,9 +489,9 @@ Jednoduchý JSON objekt: klíč = název souboru bez přípony, hodnota = hvězd
 ## Důležité poznámky
 
 - **XMP sidecar soubory** — skript vytváří/aktualizuje `.xmp` soubory vedle originálních
-  RAW fotek s hodnocením (`xmp:Rating`). ZPS X čte hodnocení z těchto souborů.
-- **Aktualizace metadat** — po zápisu otevři ZPS X a spusť `Ctrl+Shift+M` (Aktualizace metadat),
-  aby se hodnocení z XMP souborů načetla do ZPS X.
+  RAW fotek s hodnocením (`xmp:Rating`). Zoner Studio čte hodnocení z těchto souborů.
+- **Aktualizace metadat** — po zápisu otevři Zoner Studio a spusť `Ctrl+Shift+M` (Aktualizace metadat),
+  aby se hodnocení z XMP souborů načetla do Zoner Studio.
 - **Dry-run** — vždy doporučujeme nejdřív spustit s `--dry-run`, zkontrolovat výstup
   a teprve pak provést ostrý zápis.
 - **Párování souborů** — pokud skript hlásí „Nenalezeno", zkontroluj, zda jsou soubory
