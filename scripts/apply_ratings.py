@@ -158,10 +158,12 @@ def apply_ratings(
         conn.close()
         sys.exit(1)
 
-    # Připravit pattern pro filtrování podle složky
+    # Připravit pattern pro filtrování podle složky (oba typy lomítek)
     dir_pattern = None
+    dir_pattern_fwd = None
     if source_dir is not None:
         dir_pattern = str(source_dir).replace("/", "\\").rstrip("\\") + "\\"
+        dir_pattern_fwd = str(source_dir).replace("\\", "/").rstrip("/") + "/"
         print(f"Filtrování podle složky: {source_dir}\n")
 
     updated = 0
@@ -181,19 +183,25 @@ def apply_ratings(
         if dir_pattern:
             cur.execute(
                 """
-                SELECT m.CUID, m.CIM_DisplayNameWithExt, m.CIM_DataRating
+                SELECT m.CUID, m.CIM_DisplayNameWithExt, m.CIM_DataRating,
+                       b.CIB_OriginalUniPath
                 FROM CatItemMetadata m
                 JOIN CatItemBasic b ON b.CUID = m.CUID
                 WHERE m.CIM_DisplayNameWithExt LIKE ?
-                  AND (b.CIB_OriginalUniPath LIKE ? OR b.CIB_NormalizedUniPath LIKE ?)
+                  AND (b.CIB_OriginalUniPath LIKE ? OR b.CIB_NormalizedUniPath LIKE ?
+                    OR b.CIB_OriginalUniPath LIKE ? OR b.CIB_NormalizedUniPath LIKE ?)
                 """,
-                (pattern, f"%{dir_pattern}%", f"%{dir_pattern}%"),
+                (pattern,
+                 f"%{dir_pattern}%", f"%{dir_pattern}%",
+                 f"%{dir_pattern_fwd}%", f"%{dir_pattern_fwd}%"),
             )
         else:
             cur.execute(
                 """
-                SELECT m.CUID, m.CIM_DisplayNameWithExt, m.CIM_DataRating
+                SELECT m.CUID, m.CIM_DisplayNameWithExt, m.CIM_DataRating,
+                       b.CIB_OriginalUniPath
                 FROM CatItemMetadata m
+                LEFT JOIN CatItemBasic b ON b.CUID = m.CUID
                 WHERE m.CIM_DisplayNameWithExt LIKE ?
                 """,
                 (pattern,),
@@ -201,6 +209,24 @@ def apply_ratings(
         rows = cur.fetchall()
 
         if not rows:
+            if dir_pattern:
+                # Diagnostika: zjistit, zda fotka vůbec existuje v katalogu
+                cur.execute(
+                    """
+                    SELECT b.CIB_OriginalUniPath
+                    FROM CatItemMetadata m
+                    JOIN CatItemBasic b ON b.CUID = m.CUID
+                    WHERE m.CIM_DisplayNameWithExt LIKE ?
+                    LIMIT 1
+                    """,
+                    (pattern,),
+                )
+                diag = cur.fetchone()
+                if diag:
+                    print(f"  ⚠ Nenalezeno ve složce '{source_dir}': {filename}")
+                    print(f"    Katalog má cestu: {diag['CIB_OriginalUniPath']}")
+                    not_found += 1
+                    continue
             print(f"  ⚠ Nenalezeno: {filename}")
             not_found += 1
             continue
