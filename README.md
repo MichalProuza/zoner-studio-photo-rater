@@ -3,7 +3,7 @@
 Python nástroj pro automatizovaný workflow:
 1. **Extrakce** JPEG náhledů z RAW souborů
 2. **AI hodnocení** náhledů (1–5 hvězd) pomocí připraveného promptu
-3. **Zápis** hvězdiček do katalogu Zoner Photo Studio X
+3. **Zápis** hvězdiček do XMP metadat
 
 > **Nejjednodušší způsob:** spusť `python scripts/run_gui.py`, vyber složku s fotkami a klikni na Spustit. Vše ostatní se provede automaticky.
 
@@ -19,11 +19,10 @@ Python nástroj pro automatizovaný workflow:
   - [1. Extrakce náhledů](#1-extrakce-náhledů)
   - [2. Hodnocení náhledů](#2-hodnocení-náhledů)
   - [2b. Automatické AI hodnocení](#2b-automatické-ai-hodnocení)
-  - [3. Zápis do katalogu](#3-zápis-do-katalogu)
+  - [3. Zápis do XMP metadat](#3-zápis-do-xmp-metadat)
 - [PowerShell orchestrace](#powershell-orchestrace)
 - [Formát ratings.json](#formát-ratingsjson)
 - [Podporované RAW formáty](#podporované-raw-formáty)
-- [ZPS X SQLite schéma](#zps-x-sqlite-schéma)
 - [Důležité poznámky](#důležité-poznámky)
 
 ---
@@ -32,7 +31,7 @@ Python nástroj pro automatizovaný workflow:
 
 - **Python 3.10+**
 - **Windows** (výchozí cesty jsou Windows; skripty fungují i na Linuxu s explicitními cestami)
-- **Zoner Photo Studio X** s vytvořeným katalogem
+- **Zoner Photo Studio X**
 
 ---
 
@@ -69,7 +68,7 @@ zoner-studio-photo-rater/
     ├── run_gui.py                 # ★ Grafické rozhraní — výběr složky + celý workflow
     ├── extract_previews.py        # Extrakce JPEG náhledů z RAW souborů
     ├── rate_with_ai.py            # Automatické AI hodnocení (Anthropic API)
-    ├── apply_ratings.py           # Zápis hodnocení do ZPS X katalogu / XMP
+    ├── apply_ratings.py           # Zápis hodnocení do XMP metadat
     ├── run_zps_workflow.ps1       # PowerShell orchestrace celého workflow
     └── run_zps_workflow.cmd       # CMD wrapper (obchází ExecutionPolicy)
 ```
@@ -104,7 +103,7 @@ GUI automaticky provede všechny tři kroky:
 
 Průběh každého kroku se zobrazuje v logu v reálném čase.
 
-Po dokončení otevři v ZPS X **Aktualizaci metadat** (`Ctrl+Shift+M`), aby se hvězdičky z XMP souborů načetly do katalogu.
+Po dokončení otevři v ZPS X **Aktualizaci metadat** (`Ctrl+Shift+M`), aby se hvězdičky z XMP souborů načetly do ZPS X.
 
 **Volitelné přepínače:**
 
@@ -127,7 +126,7 @@ extract_previews.py ──► JPEG náhledy (max 800 px)
 AI hodnocení (RATING_PROMPT_V2.md) ──► ratings.json
     │
     ▼
-apply_ratings.py ──► ZPS X katalog (SQLite)
+apply_ratings.py ──► XMP sidecar soubory
     │
     ▼
 Hvězdičky v Zoner Photo Studio X
@@ -316,17 +315,12 @@ Distribuce hodnocení:
 
 ---
 
-### 3. Zápis do katalogu
+### 3. Zápis do XMP metadat
 
 **Skript:** `scripts/apply_ratings.py`
 
-Načte `ratings.json` a zapíše hodnocení do:
-1. **SQLite katalogu** ZPS X (`CatItemMetadata.CIM_DataRating`)
-2. **XMP sidecar souborů** vedle originálních fotek (`xmp:Rating`)
-
-ZPS X čte hodnocení primárně z metadat souborů (XMP), katalog slouží jen jako cache.
-Proto skript vytváří/aktualizuje XMP sidecar soubory (např. `DSCF3987.xmp` vedle `DSCF3987.RAF`),
-aby se hvězdičky spolehlivě zobrazily v ZPS X.
+Načte `ratings.json` a zapíše hodnocení do **XMP sidecar souborů** vedle originálních fotek (`xmp:Rating`).
+Skript hledá fotky přímo na disku v `--source-dir` a vytváří/aktualizuje soubory jako `DSCF3987.xmp` vedle `DSCF3987.RAF`.
 
 Po zápisu spusť v ZPS X **Aktualizaci metadat** (`Ctrl+Shift+M`) pro načtení hodnocení z XMP.
 
@@ -341,42 +335,20 @@ python scripts/apply_ratings.py <ratings> [volitelné argumenty]
 | Argument | Zkratka | Výchozí | Popis |
 |---|---|---|---|
 | `ratings` | — | (povinné) | Cesta k `ratings.json` |
-| `--catalog` | `-c` | `%LOCALAPPDATA%\Zoner\ZPS X\ZPSCatalog\index.catalogue-zps` | Cesta ke katalogu ZPS X *(ignoruje se s `--xmp-only`)* |
-| `--source-dir` | `-s` | `None` | Omezit párování na soubory z dané složky; s `--xmp-only` vyhledat fotky na disku |
+| `--source-dir` | `-s` | `None` | Složka s RAW fotkami, kde se vytvoří XMP soubory |
 | `--dry-run` | `-n` | vypnuto | Jen zobrazit změny, nic nezapisovat |
-| `--no-backup` | — | záloha ON | Nevytvářet zálohu katalogu |
-| `--xmp-only` | — | vypnuto | **Zapsat jen do XMP metadat, přeskočit katalog** |
 
 #### Příklady
 
-**Zápis do katalogu (normální režim):**
-
-```bash
-# Dry-run (bezpečné testování)
-python scripts/apply_ratings.py ratings.json --dry-run
-
-# Zápis s explicitní cestou ke katalogu
-python scripts/apply_ratings.py ratings.json \
-    --catalog "C:\Users\michal.prouza\AppData\Local\Zoner\ZPS X\ZPSCatalog\index.catalogue-zps"
-
-# Zápis bez zálohy
-python scripts/apply_ratings.py ratings.json --no-backup
-```
-
-**Zápis jen do XMP metadat (`--xmp-only`):**
-
-Užitečné když katalog není dostupný nebo fotky nejsou v katalogu registrovány.
-Skript pak hledá fotky přímo na disku a zapisuje hodnocení do XMP sidecar souborů.
-
 ```bash
 # Dry-run (kontrola před zápisem)
-python scripts/apply_ratings.py ratings.json --xmp-only --source-dir "C:\Fotky\2025-03" --dry-run
+python scripts/apply_ratings.py ratings.json --source-dir "C:\Fotky\2025-03" --dry-run
 
 # Ostrý zápis
-python scripts/apply_ratings.py ratings.json --xmp-only --source-dir "C:\Fotky\2025-03"
+python scripts/apply_ratings.py ratings.json --source-dir "C:\Fotky\2025-03"
 
 # Rekurzivně i v podsložkách
-python scripts/apply_ratings.py ratings.json --xmp-only --source-dir "C:\Fotky"
+python scripts/apply_ratings.py ratings.json --source-dir "C:\Fotky"
 ```
 
 #### Výstup
@@ -389,10 +361,6 @@ Hodnocení k aplikaci: 47 fotek
   3⭐  15 (31.9%)  ███████████████
   2⭐  10 (21.3%)  ██████████
   1⭐   1 ( 2.1%)  █
-
-Záloha: index.catalogue-zps.bak
-
-⚠️  Ujisti se, že Zoner Photo Studio X je ZAVŘENÝ!
 
   ✓ DSCF3987.RAF: bez hodnocení → 4⭐
     XMP → C:\Pictures\2025-12-21\DSCF3987.xmp
@@ -410,15 +378,6 @@ Výsledek:
 💡 V ZPS X spusť Aktualizaci metadat (Ctrl+Shift+M) pro načtení hodnocení z XMP souborů.
 ```
 
-#### Párování souborů
-
-Skript páruje záznamy v `ratings.json` se soubory v katalogu podle názvu bez přípony:
-
-| Klíč v ratings.json | Hledaný vzor v katalogu |
-|---|---|
-| `DSCF3987` | `DSCF3987.%` (jakákoliv přípona) |
-| `DSCF3987.RAF` | `DSCF3987.RAF` (přesná shoda) |
-
 ---
 
 ## PowerShell orchestrace
@@ -434,7 +393,6 @@ Automatizuje celý workflow v jednom spuštění: extrakce → čekání na hodn
 | `-SourceDir` | `C:\Users\michal.prouza\Pictures\2025-12 Sousedské setkání\2025-12-21` | Složka s RAW soubory |
 | `-PreviewDir` | `<SourceDir>\_previews` | Výstupní složka pro náhledy |
 | `-RatingsPath` | `<SourceDir>\ratings.json` | Cesta k souboru s hodnoceními |
-| `-CatalogPath` | `%LOCALAPPDATA%\Zoner\ZPS X\ZPSCatalog\index.catalogue-zps` | Cesta ke katalogu ZPS X |
 | `-Recursive` | vypnuto | Prohledávat i podadresáře |
 | `-DryRun` | vypnuto | Simulovat zápis bez skutečných změn |
 | `-MaxSize` | `800` | Max rozměr náhledů v pixelech |
@@ -468,7 +426,6 @@ powershell -ExecutionPolicy Bypass -File scripts/run_zps_workflow.ps1
 SourceDir:   C:\Users\michal.prouza\Pictures\2025-12-21
 PreviewDir:  C:\Users\michal.prouza\Pictures\2025-12-21\_previews
 RatingsPath: C:\Users\michal.prouza\Pictures\2025-12-21\ratings.json
-CatalogPath: C:\Users\...\ZPSCatalog\index.catalogue-zps
 
 [1/2] Extrakce náhledů...
   ✓ [1/47] DSCF3987.RAF
@@ -477,7 +434,7 @@ CatalogPath: C:\Users\...\ZPSCatalog\index.catalogue-zps
 Nyní ohodnoť náhledy dle prompts/RATING_PROMPT_V2.md a ulož výsledky do: ...
 Až bude ratings.json připravený, stiskni Enter pro pokračování k zápisu hodnocení:
 
-[2/2] Aplikace hodnocení do katalogu...
+[2/2] Aplikace hodnocení do XMP metadat...
   ✓ DSCF3987.RAF: bez hodnocení → 4⭐
   ...
 
@@ -529,54 +486,13 @@ Jednoduchý JSON objekt: klíč = název souboru bez přípony, hodnota = hvězd
 
 ---
 
-## ZPS X SQLite schéma
-
-Katalog Zoner Photo Studio X je SQLite databáze uložená jako `index.catalogue-zps`.
-
-**Výchozí umístění (Windows):**
-```
-C:\Users\<uživatel>\AppData\Local\Zoner\ZPS X\ZPSCatalog\index.catalogue-zps
-```
-
-**Použité tabulky:**
-
-### CatItemMetadata
-
-| Sloupec | Typ | Popis |
-|---|---|---|
-| `CUID` | TEXT (PK) | Unikátní identifikátor záznamu |
-| `CIM_DisplayNameWithExt` | TEXT | Název souboru s příponou (např. `DSCF3987.RAF`) |
-| `CIM_DataRating` | INTEGER | Hodnocení 1–5 hvězd (**sem se zapisuje**) |
-
-### CatItemBasic
-
-| Sloupec | Typ | Popis |
-|---|---|---|
-| `CUID` | TEXT (PK/FK) | Unikátní identifikátor záznamu |
-| `CIB_OriginalUniPath` | TEXT | Plná cesta k souboru |
-| `CIB_NormalizedUniPath` | TEXT | Normalizovaná cesta |
-
-Skript `apply_ratings.py` zapisuje do `CatItemMetadata.CIM_DataRating` (katalog)
-a zároveň do **XMP sidecar souborů** vedle originálních fotek (`xmp:Rating`).
-Cesta k souboru se zjistí z `CatItemBasic.CIB_OriginalUniPath`.
-
----
-
 ## Důležité poznámky
 
-- **Zavři Zoner Photo Studio X** před zápisem do katalogu — otevřená aplikace katalog uzamkne.
 - **XMP sidecar soubory** — skript vytváří/aktualizuje `.xmp` soubory vedle originálních
-  RAW fotek s hodnocením (`xmp:Rating`). ZPS X čte hodnocení primárně z těchto souborů.
+  RAW fotek s hodnocením (`xmp:Rating`). ZPS X čte hodnocení z těchto souborů.
 - **Aktualizace metadat** — po zápisu otevři ZPS X a spusť `Ctrl+Shift+M` (Aktualizace metadat),
-  aby se hodnocení z XMP souborů načetla do katalogu.
-- **Záloha** — skript automaticky vytváří zálohu `*.catalogue-zps.bak` před každým zápisem.
-  Zálohu lze přeskočit pomocí `--no-backup`.
+  aby se hodnocení z XMP souborů načetla do ZPS X.
 - **Dry-run** — vždy doporučujeme nejdřív spustit s `--dry-run`, zkontrolovat výstup
   a teprve pak provést ostrý zápis.
 - **Párování souborů** — pokud skript hlásí „Nenalezeno", zkontroluj, zda jsou soubory
-  importovány v ZPS X a katalog je aktuální.
-- **Bez katalogu (`--xmp-only`)** — pokud katalog není dostupný nebo soubory nejsou registrovány:
-  - Skript vyhledá fotky přímo na disku v `--source-dir`
-  - Zapíše hodnocení jen do XMP metadat (`.xmp` soubory)
-  - Negeneruje zálohу katalogu (neneed)
-  - Po zápisu můžeš soubory importovat do ZPS X a spustit aktualizaci metadat (`Ctrl+Shift+M`)
+  přítomny v zadané složce `--source-dir`.
