@@ -15,12 +15,48 @@ import os
 import sys
 import subprocess
 import threading
+import configparser
 import tkinter as tk
 from tkinter import ttk, filedialog, scrolledtext
 from pathlib import Path
 
 SCRIPTS_DIR = Path(__file__).parent
 PROJECT_ROOT = SCRIPTS_DIR.parent
+
+
+def _config_path() -> Path:
+    """Vrátí cestu ke konfiguračnímu souboru (~/.config/zps-rater/config.ini)."""
+    if sys.platform == "win32":
+        base = Path(os.environ.get("APPDATA", Path.home()))
+    else:
+        base = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
+    return base / "zps-rater" / "config.ini"
+
+
+def load_saved_api_key() -> str:
+    """Načte uložený API klíč z konfiguračního souboru, nebo z env proměnné."""
+    config_file = _config_path()
+    if config_file.exists():
+        cfg = configparser.ConfigParser()
+        cfg.read(config_file, encoding="utf-8")
+        key = cfg.get("anthropic", "api_key", fallback="").strip()
+        if key:
+            return key
+    return os.environ.get("ANTHROPIC_API_KEY", "")
+
+
+def save_api_key(api_key: str) -> None:
+    """Uloží API klíč do konfiguračního souboru."""
+    config_file = _config_path()
+    config_file.parent.mkdir(parents=True, exist_ok=True)
+    cfg = configparser.ConfigParser()
+    if config_file.exists():
+        cfg.read(config_file, encoding="utf-8")
+    if "anthropic" not in cfg:
+        cfg["anthropic"] = {}
+    cfg["anthropic"]["api_key"] = api_key
+    with open(config_file, "w", encoding="utf-8") as f:
+        cfg.write(f)
 
 
 class App(tk.Tk):
@@ -73,15 +109,19 @@ class App(tk.Tk):
         ttk.Label(frm_opts, text="Anthropic API klíč:").grid(
             row=0, column=0, sticky="w", padx=6, pady=5
         )
-        self.api_key_var = tk.StringVar(value=os.environ.get("ANTHROPIC_API_KEY", ""))
+        self.api_key_var = tk.StringVar(value=load_saved_api_key())
         self._api_entry = ttk.Entry(
-            frm_opts, textvariable=self.api_key_var, width=48, show="•"
+            frm_opts, textvariable=self.api_key_var, width=44, show="•"
         )
-        self._api_entry.grid(row=0, column=1, sticky="ew", padx=6, pady=5)
+        self._api_entry.grid(row=0, column=1, sticky="ew", padx=(6, 2), pady=5)
 
-        ttk.Label(frm_opts, text="(nebo nastav env ANTHROPIC_API_KEY)", foreground="gray").grid(
-            row=1, column=1, sticky="w", padx=6
+        self._btn_save_key = ttk.Button(
+            frm_opts, text="Uložit klíč", command=self._save_api_key
         )
+        self._btn_save_key.grid(row=0, column=2, padx=(0, 6), pady=5)
+
+        self._save_key_label = ttk.Label(frm_opts, text="", foreground="gray")
+        self._save_key_label.grid(row=1, column=1, columnspan=2, sticky="w", padx=6)
 
         self.recursive_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(
@@ -115,6 +155,23 @@ class App(tk.Tk):
         self.log.tag_config("ok", foreground="#007700")
         self.log.tag_config("err", foreground="#cc0000")
         self.log.tag_config("hdr", foreground="#0044aa", font=("Courier New", 9, "bold"))
+
+    # ------------------------------------------------------------------
+    # API key persistence
+    # ------------------------------------------------------------------
+
+    def _save_api_key(self):
+        key = self.api_key_var.get().strip()
+        if not key:
+            self._save_key_label.config(text="⚠  Klíč je prázdný.", foreground="#cc0000")
+            return
+        save_api_key(key)
+        cfg_path = _config_path()
+        self._save_key_label.config(
+            text=f"✓  Uloženo do {cfg_path}", foreground="#007700"
+        )
+        # Reset status after 4 seconds
+        self.after(4000, lambda: self._save_key_label.config(text="", foreground="gray"))
 
     # ------------------------------------------------------------------
     # Folder picker
