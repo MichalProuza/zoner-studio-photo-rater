@@ -19,6 +19,38 @@ PROJECT_ROOT = SCRIPTS_DIR.parent
 _FROZEN = getattr(sys, "frozen", False)
 
 
+def ensure_dependencies():
+    """Zkontroluje a případně nainstaluje chybějící závislosti."""
+    if _FROZEN:
+        return  # V EXE verzi jsou závislosti již zabaleny
+
+    required = {
+        "rawpy": "rawpy",
+        "PIL": "Pillow",
+        "anthropic": "anthropic",
+        "google.generativeai": "google-generativeai"
+    }
+
+    missing = []
+    for module, package in required.items():
+        try:
+            if module == "google.generativeai":
+                __import__("google.generativeai")
+            else:
+                __import__(module)
+        except ImportError:
+            missing.append(package)
+
+    if missing:
+        print(f"Chybějící knihovny: {', '.join(missing)}. Pokouším se o instalaci...")
+        try:
+            subprocess.check_call([sys.executable, "-m", "pip", "install", *missing])
+            print("Instalace byla úspěšná.")
+        except Exception as e:
+            print(f"Automatická instalace selhala: {e}")
+            print(f"Prosím, nainstalujte knihovny ručně: pip install {' '.join(missing)}")
+
+
 def _config_path() -> Path:
     """Vrátí cestu ke konfiguračnímu souboru."""
     if sys.platform == "win32":
@@ -298,5 +330,6 @@ class App(tk.Tk):
 
 
 if __name__ == "__main__":
+    ensure_dependencies()
     app = App()
     app.mainloop()
