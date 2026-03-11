@@ -98,7 +98,7 @@ class GeminiProvider:
     def __init__(self, api_key: str, model: str):
         from google import genai
         self.client = genai.Client(api_key=api_key)
-        self.model = model if model.startswith("models/") else f"models/{model}"
+        self.model = model
 
     def rate_batch(self, prompt: str, images: list[Path]) -> dict[str, int]:
         from google.genai import types
@@ -123,7 +123,7 @@ def rate_batch_with_retry(provider, prompt: str, images: list[Path]) -> dict[str
                 # Pokusíme se z chyby vytáhnout doporučenou dobu čekání
                 wait_match = re.search(r"retry in ([\d\.]+)s", err_msg)
                 wait_time = float(wait_match.group(1)) + 2 if wait_match else 70
-                print(f"  ⚠ Dosažen limit API (429). Čekám {int(wait_time)} sekund...")
+                print(f"  [!] Dosažen limit API (429). Čekám {int(wait_time)} sekund...")
                 time.sleep(wait_time)
                 # Po čekání zkusíme znovu v rámci stejného pokusu
                 try:
@@ -133,7 +133,7 @@ def rate_batch_with_retry(provider, prompt: str, images: list[Path]) -> dict[str
             
             if attempt == RETRY_ATTEMPTS: raise
             wait = RETRY_DELAY * (2 ** (attempt - 1))
-            print(f"  ✖ Pokus {attempt} selhal. Čekám {wait}s...")
+            print(f"  [X] Pokus {attempt} selhal. Čekám {wait}s...")
             time.sleep(wait)
     return {}
 
@@ -147,7 +147,8 @@ def print_distribution(ratings: dict[str, int]) -> None:
     for stars in range(5, 0, -1):
         count = counts[stars]
         pct = count / total * 100 if total else 0
-        print(f"  {stars}⭐  {count:3d} ({pct:5.1f}%)  {'█' * int(pct / 2)}")
+        bar = "#" * int(pct / 2)
+        print(f"  {stars}*  {count:3d} ({pct:5.1f}%)  {bar}")
 
 
 def main() -> None:
@@ -196,9 +197,9 @@ def main() -> None:
             batch_ratings = rate_batch_with_retry(provider, prompt, batch)
             ratings.update(batch_ratings)
             with open(output_path, "w", encoding="utf-8") as f: json.dump(ratings, f, ensure_ascii=False, indent=2)
-            print(f"  ✔ {len(batch_ratings)} hodnocení uloženo")
+            print(f"  [OK] {len(batch_ratings)} hodnocení uloženo")
         except Exception as e:
-            print(f"  ✖ Chyba: {e}")
+            print(f"  [X] Chyba: {e}")
 
         if i < len(batches):
             time.sleep(10) # Bezpečnostní pauza mezi dávkami
