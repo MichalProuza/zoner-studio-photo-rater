@@ -12,18 +12,28 @@ import tkinter as tk
 from tkinter import ttk, filedialog, scrolledtext
 from pathlib import Path
 
-# Importy pro "router" v EXE režimu
-import scripts.extract_previews as extract_previews
-import scripts.rate_with_ai as rate_with_ai
-import scripts.apply_ratings as apply_ratings
-
+# Zajištění, aby Python viděl kořenový adresář pro importy
 SCRIPTS_DIR = Path(__file__).parent
 PROJECT_ROOT = SCRIPTS_DIR.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+# Importy pro "router" v EXE režimu (nyní relativní/absolutní vůči sys.path)
+try:
+    import scripts.extract_previews as extract_previews
+    import scripts.rate_with_ai as rate_with_ai
+    import scripts.apply_ratings as apply_ratings
+except ImportError:
+    # Fallback pro přímé spuštění ze složky scripts
+    import extract_previews as extract_previews
+    import rate_with_ai as rate_with_ai
+    import apply_ratings as apply_ratings
+
 _FROZEN = getattr(sys, "frozen", False)
 
 MODELS = {
     "anthropic": ["claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022", "claude-3-opus-20240229"],
-    "gemini": ["gemini-2.0-flash", "gemini-2.5-flash", "gemini-3.1-flash-lite-preview", "gemini-2.0-flash-lite"]
+    "gemini": ["gemini-2.0-flash", "gemini-2.5-flash", "gemini-3.1-flash-lite-preview", "gemini-1.5-flash", "gemini-2.0-flash-lite"]
 }
 
 def ensure_dependencies():
@@ -174,8 +184,6 @@ class App(tk.Tk):
     def _run_step(self, lbl, cmd, env, cwd):
         self._log(f"\n=== {lbl} ===", "hdr")
         try:
-            # DŮLEŽITÉ: Na Windows v EXE režimu musíme subprocesy spouštět se správnými příznaky,
-            # aby se neotevírala nová černá okna.
             startupinfo = None
             if sys.platform == "win32":
                 startupinfo = subprocess.STARTUPINFO()
@@ -186,26 +194,22 @@ class App(tk.Tk):
             proc.wait()
             return proc.returncode == 0
         except Exception as e:
-            self._log(f"Chyba při spuštění kroku: {e}", "err")
+            self._log(f"Chyba: {e}", "err")
             return False
 
     def _run_workflow(self, fol, prov, key, mod):
         src, env = Path(fol), os.environ.copy()
         env["ANTHROPIC_API_KEY" if prov == "anthropic" else "GEMINI_API_KEY"] = key
-        # V EXE režimu musíme nastavit cestu k interpretu na samotné EXE
         cwd = Path(sys.executable).parent if _FROZEN else PROJECT_ROOT
         exe_path = [sys.executable]
         
-        # Step 1: Previews
         c1 = [*exe_path, "--_mode=extract_previews", str(src), "-o", str(src/"_previews")]
         if self.recursive_var.get(): c1.append("-r")
         if not self._run_step("Extrakce", c1, env, cwd): return self.btn.config(state="normal")
         
-        # Step 2: Rate
         c2 = [*exe_path, "--_mode=rate_with_ai", str(src/"_previews"), "-o", str(src/"ratings.json"), "--provider", prov, "--model", mod, "--resume"]
         if not self._run_step("Hodnocení", c2, env, cwd): return self.btn.config(state="normal")
         
-        # Step 3: XMP
         c3 = [*exe_path, "--_mode=apply_ratings", str(src/"ratings.json"), "-s", str(src)]
         if self.dry_run_var.get(): c3.append("-n")
         self._run_step("Zápis XMP", c3, env, cwd)
@@ -213,14 +217,10 @@ class App(tk.Tk):
         self.btn.config(state="normal")
 
 if __name__ == "__main__":
-    # Router pro EXE režim
     if len(sys.argv) > 1 and sys.argv[1].startswith("--_mode="):
         mode = sys.argv[1].split("=")[1]
-        # Pozor: sys.argv musíme nechat tak, aby main() skriptů našly své argumenty
-        # ale musíme odstranit --_mode=...
         target_mode = mode
         sys.argv.pop(1)
-        
         if target_mode == "extract_previews": extract_previews.main()
         elif target_mode == "rate_with_ai": rate_with_ai.main()
         elif target_mode == "apply_ratings": apply_ratings.main()

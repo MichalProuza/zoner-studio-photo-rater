@@ -15,16 +15,16 @@ from pathlib import Path
 SUPPORTED_EXTENSIONS = {".jpg", ".jpeg"}
 DEFAULT_ANTHROPIC_MODEL = "claude-3-5-sonnet-20241022"
 DEFAULT_GEMINI_MODEL = "gemini-2.0-flash"
-DEFAULT_BATCH_SIZE = 10
-RETRY_ATTEMPTS = 3
-RETRY_DELAY = 5
+DEFAULT_BATCH_SIZE = 30  # Zvětšeno pro snížení počtu požadavků
+RETRY_ATTEMPTS = 5
+RETRY_DELAY = 10
 
 
 def load_prompt(prompt_path: Path) -> str:
     try:
         return prompt_path.read_text(encoding="utf-8")
     except Exception as e:
-        print(f"Chyba při načítání promptu z {prompt_path}: {e}", file=sys.stderr)
+        print(f"Chyba při načítání promptu: {e}", file=sys.stderr)
         sys.exit(1)
 
 
@@ -62,7 +62,7 @@ def validate_ratings(ratings: dict) -> dict[str, int]:
             rating = int(value)
             if 1 <= rating <= 5:
                 validated[clean_key] = rating
-        except (TypeError, ValueError):
+        except:
             pass
     return validated
 
@@ -85,10 +85,7 @@ class AnthropicProvider:
                     "data": encode_image(image_path),
                 },
             })
-        content.append({
-            "type": "text",
-            "text": "\nOhodnoť všechny fotky. Výstup: ```json\n{\"NAZEV\": hodnoceni, ...}\n```"
-        })
+        content.append({"type": "text", "text": "\nOhodnoť fotky. JSON výstup: ```json\n{\"NAZEV\": hodnoceni, ...}\n```"})
         response = self.client.messages.create(
             model=self.model,
             max_tokens=4096,
@@ -110,7 +107,7 @@ class GeminiProvider:
             content_parts.append(f"\nSoubor: {image_path.stem}")
             image_part = types.Part.from_bytes(data=image_path.read_bytes(), mime_type="image/jpeg")
             content_parts.append(image_part)
-        content_parts.append("\nOhodnoť fotky. Výstup: ```json\n{\"NAZEV\": hodnoceni, ...}\n```")
+        content_parts.append("\nOhodnoť fotky podle instrukcí. JSON výstup v ```json bloku.")
         
         response = self.client.models.generate_content(model=self.model, contents=content_parts)
         return parse_json_from_response(response.text)
@@ -121,8 +118,23 @@ def rate_batch_with_retry(provider, prompt: str, images: list[Path]) -> dict[str
         try:
             return validate_ratings(provider.rate_batch(prompt, images))
         except Exception as e:
+            err_msg = str(e)
+            if "429" in err_msg or "RESOURCE_EXHAUSTED" in err_msg:
+                # Pokusíme se z chyby vytáhnout doporučenou dobu čekání
+                wait_match = re.search(r"retry in ([\d\.]+)s", err_msg)
+                wait_time = float(wait_match.group(1)) + 2 if wait_match else 70
+                print(f"  ⚠ Dosažen limit API (429). Čekám {int(wait_time)} sekund...")
+                time.sleep(wait_time)
+                # Po čekání zkusíme znovu v rámci stejného pokusu
+                try:
+                    return validate_ratings(provider.rate_batch(prompt, images))
+                except:
+                    pass
+            
             if attempt == RETRY_ATTEMPTS: raise
-            time.sleep(RETRY_DELAY * (2 ** (attempt - 1)))
+            wait = RETRY_DELAY * (2 ** (attempt - 1))
+            print(f"  ✖ Pokus {attempt} selhal. Čekám {wait}s...")
+            time.sleep(wait)
     return {}
 
 
@@ -158,49 +170,38 @@ def main() -> None:
         model_id = args.model or DEFAULT_GEMINI_MODEL
 
     previews_dir = Path(args.previews_dir)
-    
-    # Detekce umístění promptu uvnitř EXE
-    if getattr(sys, "frozen", False):
-        _base = Path(sys._MEIPASS)
-    else:
-        _base = Path(__file__).parent.parent
-    
-    prompt_path = _base / "prompts" / "RATING_PROMPT_V2.md"
-    prompt = load_prompt(prompt_path)
-    
+    if getattr(sys, "frozen", False): _base = Path(sys._MEIPASS)
+    else: _base = Path(__file__).parent.parent
+    prompt = load_prompt(_base / "prompts" / "RATING_PROMPT_V2.md")
     images = sorted([p for p in previews_dir.iterdir() if p.suffix.lower() in SUPPORTED_EXTENSIONS])
     
     output_path = Path(args.output)
     ratings = {}
     if args.resume and output_path.exists():
         try:
-            with open(output_path, encoding="utf-8-sig") as f: 
-                ratings = json.load(f)
+            with open(output_path, encoding="utf-8-sig") as f: ratings = json.load(f)
             images = [img for img in images if img.stem not in ratings]
-        except:
-            pass
+        except: pass
 
     if not images:
         if ratings: print_distribution(ratings)
         return
 
-    try:
-        provider = AnthropicProvider(api_key, model_id) if args.provider == "anthropic" else GeminiProvider(api_key, model_id)
-    except Exception as e:
-        print(f"Chyba inicializace poskytovatele: {e}", file=sys.stderr)
-        sys.exit(1)
-
+    provider = AnthropicProvider(api_key, model_id) if args.provider == "anthropic" else GeminiProvider(api_key, model_id)
     batches = [images[i:i + args.batch_size] for i in range(0, len(images), args.batch_size)]
 
     for i, batch in enumerate(batches, 1):
-        print(f"[{i}/{len(batches)}] Hodnotím fotky...")
+        print(f"[{i}/{len(batches)}] Hodnotím dávku {len(batch)} fotek...")
         try:
             batch_ratings = rate_batch_with_retry(provider, prompt, batch)
             ratings.update(batch_ratings)
-            with open(output_path, "w", encoding="utf-8") as f: 
-                json.dump(ratings, f, ensure_ascii=False, indent=2)
+            with open(output_path, "w", encoding="utf-8") as f: json.dump(ratings, f, ensure_ascii=False, indent=2)
+            print(f"  ✔ {len(batch_ratings)} hodnocení uloženo")
         except Exception as e:
-            print(f"  ✖ Chyba v dávce {i}: {e}", file=sys.stderr)
+            print(f"  ✖ Chyba: {e}")
+
+        if i < len(batches):
+            time.sleep(10) # Bezpečnostní pauza mezi dávkami
 
     print_distribution(ratings)
 
