@@ -10,7 +10,13 @@ import os
 import re
 import sys
 import time
+import io
 from pathlib import Path
+
+# Vynucení UTF-8 pro konzoli na Windows
+if sys.platform == "win32":
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
 SUPPORTED_EXTENSIONS = {".jpg", ".jpeg"}
 DEFAULT_ANTHROPIC_MODEL = "claude-3-5-sonnet-20241022"
