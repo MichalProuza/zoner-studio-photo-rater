@@ -39,8 +39,8 @@ def run_mode(mode_name):
         sys.exit(1)
 
 MODELS = {
-    "anthropic": ["claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022", "claude-3-opus-20240229"],
-    "gemini": ["gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-1.5-pro", "gemini-2.5-flash"]
+    "anthropic": ["claude-3-5-sonnet-latest", "claude-3-5-haiku-latest", "claude-3-opus-latest", "claude-3-5-sonnet-20241022"],
+    "gemini": ["gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-1.5-pro", "gemini-1.5-flash", "gemini-2.0-pro-exp-02-05"]
 }
 
 def ensure_dependencies():
