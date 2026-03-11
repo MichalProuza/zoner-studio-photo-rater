@@ -39,8 +39,8 @@ def run_mode(mode_name):
         sys.exit(1)
 
 MODELS = {
-    "anthropic": ["claude-3-5-sonnet-latest", "claude-3-5-haiku-latest", "claude-3-haiku-20240307", "claude-3-5-sonnet-20241022"],
-    "gemini": ["gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-1.5-pro", "gemini-1.5-flash", "gemini-2.0-pro-exp-02-05"]
+    "anthropic": ["claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5-20251001", "claude-3-7-sonnet-20250219"],
+    "gemini": ["gemini-2.0-flash", "gemini-2.0-flash-lite"]
 }
 
 def ensure_dependencies():
@@ -160,8 +160,10 @@ class App(tk.Tk):
         is_ant = prov == "anthropic"
         self.e_ant.config(state="normal" if is_ant else "disabled")
         self.e_gem.config(state="disabled" if is_ant else "normal")
-        self.cb.config(values=MODELS[prov])
-        self.cb.set(self.anthropic_model_var.get() if is_ant else self.gemini_model_var.get())
+        models = MODELS[prov]
+        self.cb.config(values=models)
+        saved = self.anthropic_model_var.get() if is_ant else self.gemini_model_var.get()
+        self.cb.set(saved if saved in models else models[0])
 
     def _save_settings(self):
         p, m = self.provider_var.get(), self.cb.get()
