@@ -19,7 +19,7 @@ if sys.platform == "win32":
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
 SUPPORTED_EXTENSIONS = {".jpg", ".jpeg"}
-DEFAULT_ANTHROPIC_MODEL = "claude-3-5-sonnet-20241022"
+DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-6"
 DEFAULT_GEMINI_MODEL = "gemini-2.0-flash"
 DEFAULT_BATCH_SIZE = 30  # Zvětšeno pro snížení počtu požadavků
 RETRY_ATTEMPTS = 5
