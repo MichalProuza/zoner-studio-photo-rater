@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-run_gui.py – grafické rozhraní pro ZPS X Photo Rater
+run_gui.py – grafické rozhraní a hlavní vstupní bod pro ZPS X Photo Rater
 """
 
 import os
@@ -12,75 +12,43 @@ import tkinter as tk
 from tkinter import ttk, filedialog, scrolledtext
 from pathlib import Path
 
+# Importy pro "router" v EXE režimu
+import scripts.extract_previews as extract_previews
+import scripts.rate_with_ai as rate_with_ai
+import scripts.apply_ratings as apply_ratings
+
 SCRIPTS_DIR = Path(__file__).parent
 PROJECT_ROOT = SCRIPTS_DIR.parent
-
-# Detekce PyInstaller frozen módu
 _FROZEN = getattr(sys, "frozen", False)
 
-# Definice modelů založená na vaší diagnostice
 MODELS = {
     "anthropic": ["claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022", "claude-3-opus-20240229"],
-    "gemini": [
-        "gemini-2.0-flash", 
-        "gemini-2.5-flash", 
-        "gemini-3.1-flash-lite-preview",
-        "gemini-1.5-flash", # Ponecháme jako fallback
-        "gemini-2.0-flash-lite"
-    ]
+    "gemini": ["gemini-2.0-flash", "gemini-2.5-flash", "gemini-3.1-flash-lite-preview", "gemini-2.0-flash-lite"]
 }
 
-
 def ensure_dependencies():
-    """Zkontroluje a případně nainstaluje chybějící závislosti."""
-    if _FROZEN:
-        return
-
-    required = {
-        "rawpy": "rawpy",
-        "PIL": "Pillow",
-        "anthropic": "anthropic",
-        "google.genai": "google-genai"
-    }
-
+    if _FROZEN: return
+    required = {"rawpy": "rawpy", "PIL": "Pillow", "anthropic": "anthropic", "google.genai": "google-genai"}
     missing = []
     for module, package in required.items():
         try:
-            if module == "google.genai":
-                from google import genai
-            else:
-                __import__(module)
-        except ImportError:
-            missing.append(package)
-
+            if module == "google.genai": from google import genai
+            else: __import__(module)
+        except ImportError: missing.append(package)
     if missing:
-        print(f"Chybějící knihovny: {', '.join(missing)}. Pokouším se o instalaci...")
         try:
-            if "google-genai" in missing:
-                subprocess.call([sys.executable, "-m", "pip", "uninstall", "-y", "google-generativeai"], stdout=subprocess.DEVNULL)
+            if "google-genai" in missing: subprocess.call([sys.executable, "-m", "pip", "uninstall", "-y", "google-generativeai"], stdout=subprocess.DEVNULL)
             subprocess.check_call([sys.executable, "-m", "pip", "install", *missing])
-            print("Instalace byla úspěšná.")
-        except Exception as e:
-            print(f"Automatická instalace selhala: {e}")
-
+        except: pass
 
 def _config_path() -> Path:
-    if sys.platform == "win32":
-        base = Path(os.environ.get("APPDATA", Path.home()))
-    else:
-        base = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
+    if sys.platform == "win32": base = Path(os.environ.get("APPDATA", Path.home()))
+    else: base = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
     return base / "zps-rater" / "config.ini"
-
 
 def load_config() -> dict:
     config_file = _config_path()
-    data = {
-        "provider": "anthropic",
-        "anthropic_key": "",
-        "gemini_key": "",
-        "anthropic_model": MODELS["anthropic"][0],
-        "gemini_model": MODELS["gemini"][0]
-    }
+    data = {"provider": "anthropic", "anthropic_key": "", "gemini_key": "", "anthropic_model": MODELS["anthropic"][0], "gemini_model": MODELS["gemini"][0]}
     if config_file.exists():
         cfg = configparser.ConfigParser()
         cfg.read(config_file, encoding="utf-8")
@@ -89,262 +57,174 @@ def load_config() -> dict:
         data["gemini_key"] = cfg.get("gemini", "api_key", fallback="")
         data["anthropic_model"] = cfg.get("anthropic", "model", fallback=MODELS["anthropic"][0])
         data["gemini_model"] = cfg.get("gemini", "model", fallback=MODELS["gemini"][0])
-
-    if not data["anthropic_key"]: data["anthropic_key"] = os.environ.get("ANTHROPIC_API_KEY", "")
-    if not data["gemini_key"]: data["gemini_key"] = os.environ.get("GEMINI_API_KEY", "")
-
     return data
 
-
-def save_config(provider: str, anthropic_key: str, gemini_key: str, anthropic_model: str, gemini_model: str) -> None:
-    config_file = _config_path()
-    config_file.parent.mkdir(parents=True, exist_ok=True)
+def save_config(p, ak, gk, am, gm):
+    f = _config_path()
+    f.parent.mkdir(parents=True, exist_ok=True)
     cfg = configparser.ConfigParser()
-    if config_file.exists(): cfg.read(config_file, encoding="utf-8")
-
-    if "settings" not in cfg: cfg["settings"] = {}
-    if "anthropic" not in cfg: cfg["anthropic"] = {}
-    if "gemini" not in cfg: cfg["gemini"] = {}
-
-    cfg["settings"]["provider"] = provider
-    cfg["anthropic"]["api_key"] = anthropic_key
-    cfg["anthropic"]["model"] = anthropic_model
-    cfg["gemini"]["api_key"] = gemini_key
-    cfg["gemini"]["model"] = gemini_model
-
-    with open(config_file, "w", encoding="utf-8") as f:
-        cfg.write(f)
-
+    if f.exists(): cfg.read(f, encoding="utf-8")
+    for s in ["settings", "anthropic", "gemini"]:
+        if s not in cfg: cfg[s] = {}
+    cfg["settings"]["provider"], cfg["anthropic"]["api_key"], cfg["anthropic"]["model"] = p, ak, am
+    cfg["gemini"]["api_key"], cfg["gemini"]["model"] = gk, gm
+    with open(f, "w", encoding="utf-8") as file: cfg.write(file)
 
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("ZPS X Photo Rater")
         self.minsize(720, 650)
-        self._apply_theme()
-
-        config_data = load_config()
-
-        self.provider_var = tk.StringVar(value=config_data["provider"])
-        self.anthropic_key_var = tk.StringVar(value=config_data["anthropic_key"])
-        self.gemini_key_var = tk.StringVar(value=config_data["gemini_key"])
-        self.anthropic_model_var = tk.StringVar(value=config_data["anthropic_model"])
-        self.gemini_model_var = tk.StringVar(value=config_data["gemini_model"])
-        
-        self.folder_var = tk.StringVar()
-        self.recursive_var = tk.BooleanVar(value=False)
-        self.dry_run_var = tk.BooleanVar(value=False)
-
+        config = load_config()
+        self.provider_var = tk.StringVar(value=config["provider"])
+        self.anthropic_key_var = tk.StringVar(value=config["anthropic_key"])
+        self.gemini_key_var = tk.StringVar(value=config["gemini_key"])
+        self.anthropic_model_var = tk.StringVar(value=config["anthropic_model"])
+        self.gemini_model_var = tk.StringVar(value=config["gemini_model"])
+        self.folder_var, self.recursive_var, self.dry_run_var = tk.StringVar(), tk.BooleanVar(value=False), tk.BooleanVar(value=False)
         self._build_ui()
         self._update_ui_state()
         self.running = False
 
     def _apply_theme(self):
-        style = ttk.Style(self)
-        if "vista" in style.theme_names(): style.theme_use("vista")
-        style.configure("Run.TButton", font=("", 11, "bold"), padding=6)
+        s = ttk.Style(self)
+        if "vista" in s.theme_names(): s.theme_use("vista")
+        s.configure("Run.TButton", font=("", 11, "bold"), padding=6)
 
     def _build_ui(self):
-        pad = {"padx": 12, "pady": 6}
-
-        # --- Folder selection ---
-        frm_folder = ttk.LabelFrame(self, text="Složka s fotkami (RAW soubory)")
-        frm_folder.pack(fill="x", **pad)
-
-        ttk.Entry(frm_folder, textvariable=self.folder_var, width=55).pack(
-            side="left", fill="x", expand=True, padx=6, pady=6
-        )
-        ttk.Button(frm_folder, text="Vybrat...", command=self._pick_folder).pack(
-            side="right", padx=(0, 6), pady=6
-        )
-
-        # --- AI Settings ---
-        frm_ai = ttk.LabelFrame(self, text="Nastavení AI")
-        frm_ai.pack(fill="x", **pad)
-
-        # Provider selection
-        ttk.Label(frm_ai, text="Poskytovatel:").grid(row=0, column=0, sticky="w", padx=6, pady=5)
-        frm_radio = ttk.Frame(frm_ai)
-        frm_radio.grid(row=0, column=1, sticky="w")
-        ttk.Radiobutton(frm_radio, text="Anthropic (Claude)", variable=self.provider_var,
-                        value="anthropic", command=self._update_ui_state).pack(side="left", padx=5)
-        ttk.Radiobutton(frm_radio, text="Google (Gemini)", variable=self.provider_var,
-                        value="gemini", command=self._update_ui_state).pack(side="left", padx=5)
-
-        # Model selection
-        ttk.Label(frm_ai, text="Model AI:").grid(row=1, column=0, sticky="w", padx=6, pady=5)
-        self.cb_model = ttk.Combobox(frm_ai, state="readonly", width=47)
-        self.cb_model.grid(row=1, column=1, sticky="w", padx=6, pady=5)
-
-        # Anthropic Key
-        self.lbl_anthropic = ttk.Label(frm_ai, text="Anthropic API klíč:")
-        self.lbl_anthropic.grid(row=2, column=0, sticky="w", padx=6, pady=2)
-        self.ent_anthropic = ttk.Entry(frm_ai, textvariable=self.anthropic_key_var, width=50, show="●")
-        self.ent_anthropic.grid(row=2, column=1, sticky="ew", padx=6, pady=2)
-
-        # Gemini Key
-        self.lbl_gemini = ttk.Label(frm_ai, text="Gemini API klíč:")
-        self.lbl_gemini.grid(row=3, column=0, sticky="w", padx=6, pady=2)
-        self.ent_gemini = ttk.Entry(frm_ai, textvariable=self.gemini_key_var, width=50, show="●")
-        self.ent_gemini.grid(row=3, column=1, sticky="ew", padx=6, pady=2)
-
-        frm_ai.columnconfigure(1, weight=1)
-
-        ttk.Button(frm_ai, text="Uložit nastavení", command=self._save_settings).grid(
-            row=4, column=1, sticky="e", padx=6, pady=5
-        )
-        self.status_label = ttk.Label(frm_ai, text="", foreground="gray")
-        self.status_label.grid(row=5, column=1, sticky="e", padx=6)
-
-        # --- Options ---
-        frm_opts = ttk.Frame(self)
-        frm_opts.pack(fill="x", **pad)
-        ttk.Checkbutton(frm_opts, text="Procházet podsložky rekurzivně", variable=self.recursive_var).pack(side="left", padx=6)
-        ttk.Checkbutton(frm_opts, text="Dry run (simulace zápisu)", variable=self.dry_run_var).pack(side="left", padx=6)
-
-        # --- Run button ---
-        self.btn_run = ttk.Button(self, text="▶  Spustit celý workflow", command=self._start, style="Run.TButton")
-        self.btn_run.pack(pady=10)
-
-        self.progress_var = tk.StringVar(value="")
-        ttk.Label(self, textvariable=self.progress_var, foreground="#0066cc").pack()
-
-        # --- Log ---
-        frm_log = ttk.LabelFrame(self, text="Průběh")
-        frm_log.pack(fill="both", expand=True, **pad)
-        self.log = scrolledtext.ScrolledText(frm_log, state="disabled", height=15, font=("Courier New", 9), wrap="word")
+        self._apply_theme()
+        p = {"padx": 12, "pady": 6}
+        f_fol = ttk.LabelFrame(self, text="Složka s fotkami (RAW soubory)")
+        f_fol.pack(fill="x", **p)
+        ttk.Entry(f_fol, textvariable=self.folder_var).pack(side="left", fill="x", expand=True, padx=6, pady=6)
+        ttk.Button(f_fol, text="Vybrat...", command=self._pick_folder).pack(side="right", padx=(0, 6), pady=6)
+        
+        f_ai = ttk.LabelFrame(self, text="Nastavení AI")
+        f_ai.pack(fill="x", **p)
+        ttk.Label(f_ai, text="Poskytovatel:").grid(row=0, column=0, sticky="w", padx=6, pady=5)
+        fr = ttk.Frame(f_ai)
+        fr.grid(row=0, column=1, sticky="w")
+        ttk.Radiobutton(fr, text="Anthropic", variable=self.provider_var, value="anthropic", command=self._update_ui_state).pack(side="left", padx=5)
+        ttk.Radiobutton(fr, text="Gemini", variable=self.provider_var, value="gemini", command=self._update_ui_state).pack(side="left", padx=5)
+        
+        ttk.Label(f_ai, text="Model AI:").grid(row=1, column=0, sticky="w", padx=6, pady=5)
+        self.cb = ttk.Combobox(f_ai, state="readonly", width=47)
+        self.cb.grid(row=1, column=1, sticky="w", padx=6, pady=5)
+        
+        self.l_ant = ttk.Label(f_ai, text="Anthropic Key:")
+        self.l_ant.grid(row=2, column=0, sticky="w", padx=6)
+        self.e_ant = ttk.Entry(f_ai, textvariable=self.anthropic_key_var, show="●")
+        self.e_ant.grid(row=2, column=1, sticky="ew", padx=6)
+        
+        self.l_gem = ttk.Label(f_ai, text="Gemini Key:")
+        self.l_gem.grid(row=3, column=0, sticky="w", padx=6)
+        self.e_gem = ttk.Entry(f_ai, textvariable=self.gemini_key_var, show="●")
+        self.e_gem.grid(row=3, column=1, sticky="ew", padx=6)
+        
+        ttk.Button(f_ai, text="Uložit", command=self._save_settings).grid(row=4, column=1, sticky="e", padx=6, pady=5)
+        self.st = ttk.Label(f_ai, text="")
+        self.st.grid(row=5, column=1, sticky="e")
+        
+        f_o = ttk.Frame(self)
+        f_o.pack(fill="x", **p)
+        ttk.Checkbutton(f_o, text="Rekurzivně", variable=self.recursive_var).pack(side="left", padx=6)
+        ttk.Checkbutton(f_o, text="Dry run", variable=self.dry_run_var).pack(side="left", padx=6)
+        
+        self.btn = ttk.Button(self, text="▶ Spustit", command=self._start, style="Run.TButton")
+        self.btn.pack(pady=10)
+        self.pr_var = tk.StringVar()
+        ttk.Label(self, textvariable=self.pr_var, foreground="#0066cc").pack()
+        
+        f_l = ttk.LabelFrame(self, text="Log")
+        f_l.pack(fill="both", expand=True, **p)
+        self.log = scrolledtext.ScrolledText(f_l, state="disabled", height=15, font=("Courier New", 9))
         self.log.pack(fill="both", expand=True, padx=4, pady=4)
-        self.log.tag_config("ok", foreground="#007700")
-        self.log.tag_config("err", foreground="#cc0000")
-        self.log.tag_config("hdr", foreground="#0044aa", font=("Courier New", 9, "bold"))
+        for t, c in [("ok", "#007700"), ("err", "#cc0000"), ("hdr", "#0044aa")]: self.log.tag_config(t, foreground=c)
 
     def _update_ui_state(self):
-        provider = self.provider_var.get()
-        if provider == "anthropic":
-            self.ent_anthropic.config(state="normal")
-            self.ent_gemini.config(state="disabled")
-            self.cb_model.config(values=MODELS["anthropic"])
-            self.cb_model.set(self.anthropic_model_var.get())
-        else:
-            self.ent_anthropic.config(state="disabled")
-            self.ent_gemini.config(state="normal")
-            self.cb_model.config(values=MODELS["gemini"])
-            self.cb_model.set(self.gemini_model_var.get())
+        prov = self.provider_var.get()
+        is_ant = prov == "anthropic"
+        self.e_ant.config(state="normal" if is_ant else "disabled")
+        self.e_gem.config(state="disabled" if is_ant else "normal")
+        self.cb.config(values=MODELS[prov])
+        self.cb.set(self.anthropic_model_var.get() if is_ant else self.gemini_model_var.get())
 
     def _save_settings(self):
-        provider = self.provider_var.get()
-        current_model = self.cb_model.get()
-        if provider == "anthropic":
-            self.anthropic_model_var.set(current_model)
-        else:
-            self.gemini_model_var.set(current_model)
-
-        save_config(provider, self.anthropic_key_var.get(), self.gemini_key_var.get(), 
-                    self.anthropic_model_var.get(), self.gemini_model_var.get())
-        
-        self.status_label.config(text="✓ Nastavení uloženo", foreground="#007700")
-        self.after(3000, lambda: self.status_label.config(text=""))
+        p, m = self.provider_var.get(), self.cb.get()
+        if p == "anthropic": self.anthropic_model_var.set(m)
+        else: self.gemini_model_var.set(m)
+        save_config(p, self.anthropic_key_var.get(), self.gemini_key_var.get(), self.anthropic_model_var.get(), self.gemini_model_var.get())
+        self.st.config(text="✓ Uloženo")
+        self.after(2000, lambda: self.st.config(text=""))
 
     def _pick_folder(self):
-        folder = filedialog.askdirectory(title="Vyberte složku s fotkami")
-        if folder: self.folder_var.set(folder)
+        f = filedialog.askdirectory()
+        if f: self.folder_var.set(f)
 
-    def _log(self, text: str, tag: str = ""):
-        def _update():
-            self.log.config(state="normal")
-            self.log.insert("end", text + "\n", tag)
-            self.log.see("end")
-            self.log.config(state="disabled")
-        self.after(0, _update)
-
-    def _set_progress(self, text: str):
-        self.after(0, lambda: self.progress_var.set(text))
-
-    def _set_running(self, running: bool):
-        self.running = running
-        self.btn_run.config(state="disabled" if running else "normal")
+    def _log(self, t, tag=""):
+        self.after(0, lambda: (self.log.config(state="normal"), self.log.insert("end", t + "\n", tag), self.log.see("end"), self.log.config(state="disabled")))
 
     def _start(self):
-        folder = self.folder_var.get().strip()
-        if not folder:
-            self._log("⚠  Není vybrána složka!", "err")
-            return
+        fol, prov, mod = self.folder_var.get().strip(), self.provider_var.get(), self.cb.get()
+        key = self.anthropic_key_var.get() if prov == "anthropic" else self.gemini_key_var.get()
+        if not fol or not key: return
+        self.btn.config(state="disabled")
+        threading.Thread(target=self._run_workflow, args=(fol, prov, key, mod), daemon=True).start()
 
-        provider = self.provider_var.get()
-        api_key = self.anthropic_key_var.get().strip() if provider == "anthropic" else self.gemini_key_var.get().strip()
-        model = self.cb_model.get()
-
-        if not api_key:
-            self._log(f"⚠  Chybí API klíč pro {provider}!", "err")
-            return
-
-        self._set_running(True)
-        self.log.config(state="normal")
-        self.log.delete("1.0", "end")
-        self.log.config(state="disabled")
-
-        thread = threading.Thread(target=self._run_workflow, args=(folder, provider, api_key, model), daemon=True)
-        thread.start()
-
-    def _run_step(self, label: str, cmd: list, env: dict, cwd: Path) -> bool:
-        self._set_progress(label)
-        self._log(f"\n{'=' * 50}\n  {label}\n{'=' * 50}", "hdr")
+    def _run_step(self, lbl, cmd, env, cwd):
+        self._log(f"\n=== {lbl} ===", "hdr")
         try:
-            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace", cwd=cwd, env=env)
+            # DŮLEŽITÉ: Na Windows v EXE režimu musíme subprocesy spouštět se správnými příznaky,
+            # aby se neotevírala nová černá okna.
+            startupinfo = None
+            if sys.platform == "win32":
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace", cwd=cwd, env=env, startupinfo=startupinfo)
             for line in proc.stdout: self._log(line.rstrip())
             proc.wait()
+            return proc.returncode == 0
         except Exception as e:
-            self._log(f"✖  Chyba: {e}", "err")
+            self._log(f"Chyba při spuštění kroku: {e}", "err")
             return False
-        if proc.returncode == 0:
-            self._log("✔  Hotovo", "ok")
-            return True
-        self._log(f"✖  Krok selhal (exit {proc.returncode})", "err")
-        return False
 
-    def _exe_cmd(self, script_name: str) -> list:
-        if _FROZEN: return [sys.executable, f"--_mode={script_name}"]
-        return [sys.executable, str(SCRIPTS_DIR / f"{script_name}.py")]
-
-    def _run_workflow(self, folder: str, provider: str, api_key: str, model: str):
-        source = Path(folder)
-        previews = source / "_previews"
-        ratings_file = source / "ratings.json"
-
-        env = os.environ.copy()
-        if provider == "anthropic": env["ANTHROPIC_API_KEY"] = api_key
-        else: env["GEMINI_API_KEY"] = api_key
-        env["PYTHONUTF8"] = "1"
-
+    def _run_workflow(self, fol, prov, key, mod):
+        src, env = Path(fol), os.environ.copy()
+        env["ANTHROPIC_API_KEY" if prov == "anthropic" else "GEMINI_API_KEY"] = key
+        # V EXE režimu musíme nastavit cestu k interpretu na samotné EXE
         cwd = Path(sys.executable).parent if _FROZEN else PROJECT_ROOT
-
+        exe_path = [sys.executable]
+        
         # Step 1: Previews
-        cmd1 = [*self._exe_cmd("extract_previews"), str(source), "--output", str(previews), "--max-size", "800"]
-        if self.recursive_var.get(): cmd1.append("--recursive")
-        if not self._run_step("[1/3] Extrakce náhledů", cmd1, env, cwd):
-            self._set_running(False)
-            return
-
-        # Step 2: Rating
-        cmd2 = [*self._exe_cmd("rate_with_ai"), str(previews), "--output", str(ratings_file),
-                "--provider", provider, "--model", model, "--batch-size", "10", "--resume"]
-        if not self._run_step(f"[2/3] Hodnocení pomocí {provider} ({model})", cmd2, env, cwd):
-            self._set_running(False)
-            return
-
+        c1 = [*exe_path, "--_mode=extract_previews", str(src), "-o", str(src/"_previews")]
+        if self.recursive_var.get(): c1.append("-r")
+        if not self._run_step("Extrakce", c1, env, cwd): return self.btn.config(state="normal")
+        
+        # Step 2: Rate
+        c2 = [*exe_path, "--_mode=rate_with_ai", str(src/"_previews"), "-o", str(src/"ratings.json"), "--provider", prov, "--model", mod, "--resume"]
+        if not self._run_step("Hodnocení", c2, env, cwd): return self.btn.config(state="normal")
+        
         # Step 3: XMP
-        cmd3 = [*self._exe_cmd("apply_ratings"), str(ratings_file), "--source-dir", str(source)]
-        if self.dry_run_var.get(): cmd3.append("--dry-run")
-        if not self._run_step("[3/3] Zápis do XMP", cmd3, env, cwd):
-            self._set_running(False)
-            return
-
-        self._log("\n✔  Workflow dokončen úspěšně!", "ok")
-        self._set_progress("✔ Hotovo!")
-        self._set_running(False)
-
+        c3 = [*exe_path, "--_mode=apply_ratings", str(src/"ratings.json"), "-s", str(src)]
+        if self.dry_run_var.get(): c3.append("-n")
+        self._run_step("Zápis XMP", c3, env, cwd)
+        self._log("\n✔ Hotovo!", "ok")
+        self.btn.config(state="normal")
 
 if __name__ == "__main__":
+    # Router pro EXE režim
+    if len(sys.argv) > 1 and sys.argv[1].startswith("--_mode="):
+        mode = sys.argv[1].split("=")[1]
+        # Pozor: sys.argv musíme nechat tak, aby main() skriptů našly své argumenty
+        # ale musíme odstranit --_mode=...
+        target_mode = mode
+        sys.argv.pop(1)
+        
+        if target_mode == "extract_previews": extract_previews.main()
+        elif target_mode == "rate_with_ai": rate_with_ai.main()
+        elif target_mode == "apply_ratings": apply_ratings.main()
+        sys.exit(0)
+    
     ensure_dependencies()
-    app = App()
-    app.mainloop()
+    App().mainloop()

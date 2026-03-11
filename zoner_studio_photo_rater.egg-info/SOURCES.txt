@@ -1,0 +1,7 @@
+README.md
+pyproject.toml
+zoner_studio_photo_rater.egg-info/PKG-INFO
+zoner_studio_photo_rater.egg-info/SOURCES.txt
+zoner_studio_photo_rater.egg-info/dependency_links.txt
+zoner_studio_photo_rater.egg-info/requires.txt
+zoner_studio_photo_rater.egg-info/top_level.txt

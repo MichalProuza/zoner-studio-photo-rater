@@ -21,7 +21,11 @@ RETRY_DELAY = 5
 
 
 def load_prompt(prompt_path: Path) -> str:
-    return prompt_path.read_text(encoding="utf-8")
+    try:
+        return prompt_path.read_text(encoding="utf-8")
+    except Exception as e:
+        print(f"Chyba při načítání promptu z {prompt_path}: {e}", file=sys.stderr)
+        sys.exit(1)
 
 
 def encode_image(image_path: Path) -> str:
@@ -97,7 +101,6 @@ class GeminiProvider:
     def __init__(self, api_key: str, model: str):
         from google import genai
         self.client = genai.Client(api_key=api_key)
-        # Zajištění prefixu models/ pokud chybí
         self.model = model if model.startswith("models/") else f"models/{model}"
 
     def rate_batch(self, prompt: str, images: list[Path]) -> dict[str, int]:
@@ -138,7 +141,7 @@ def print_distribution(ratings: dict[str, int]) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("previews_dir")
-    parser.add_argument("--output", default="ratings.json")
+    parser.add_argument("--output", "-o", default="ratings.json")
     parser.add_argument("--provider", choices=["anthropic", "gemini"], default="anthropic")
     parser.add_argument("--model")
     parser.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE)
@@ -155,22 +158,38 @@ def main() -> None:
         model_id = args.model or DEFAULT_GEMINI_MODEL
 
     previews_dir = Path(args.previews_dir)
-    if getattr(sys, "frozen", False): _base = Path(sys._MEIPASS)
-    else: _base = Path(__file__).parent.parent
-    prompt = load_prompt(_base / "prompts" / "RATING_PROMPT_V2.md")
+    
+    # Detekce umístění promptu uvnitř EXE
+    if getattr(sys, "frozen", False):
+        _base = Path(sys._MEIPASS)
+    else:
+        _base = Path(__file__).parent.parent
+    
+    prompt_path = _base / "prompts" / "RATING_PROMPT_V2.md"
+    prompt = load_prompt(prompt_path)
+    
     images = sorted([p for p in previews_dir.iterdir() if p.suffix.lower() in SUPPORTED_EXTENSIONS])
     
     output_path = Path(args.output)
     ratings = {}
     if args.resume and output_path.exists():
-        with open(output_path, encoding="utf-8-sig") as f: ratings = json.load(f)
-        images = [img for img in images if img.stem not in ratings]
+        try:
+            with open(output_path, encoding="utf-8-sig") as f: 
+                ratings = json.load(f)
+            images = [img for img in images if img.stem not in ratings]
+        except:
+            pass
 
     if not images:
-        print_distribution(ratings)
+        if ratings: print_distribution(ratings)
         return
 
-    provider = AnthropicProvider(api_key, model_id) if args.provider == "anthropic" else GeminiProvider(api_key, model_id)
+    try:
+        provider = AnthropicProvider(api_key, model_id) if args.provider == "anthropic" else GeminiProvider(api_key, model_id)
+    except Exception as e:
+        print(f"Chyba inicializace poskytovatele: {e}", file=sys.stderr)
+        sys.exit(1)
+
     batches = [images[i:i + args.batch_size] for i in range(0, len(images), args.batch_size)]
 
     for i, batch in enumerate(batches, 1):
@@ -178,9 +197,10 @@ def main() -> None:
         try:
             batch_ratings = rate_batch_with_retry(provider, prompt, batch)
             ratings.update(batch_ratings)
-            with open(output_path, "w", encoding="utf-8") as f: json.dump(ratings, f, ensure_ascii=False, indent=2)
+            with open(output_path, "w", encoding="utf-8") as f: 
+                json.dump(ratings, f, ensure_ascii=False, indent=2)
         except Exception as e:
-            print(f"  ✖ Chyba: {e}")
+            print(f"  ✖ Chyba v dávce {i}: {e}", file=sys.stderr)
 
     print_distribution(ratings)
 
