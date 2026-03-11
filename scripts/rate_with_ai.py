@@ -115,8 +115,27 @@ class GeminiProvider:
             content_parts.append(image_part)
         content_parts.append("\nOhodnoť fotky podle instrukcí. JSON výstup v ```json bloku.")
         
-        response = self.client.models.generate_content(model=self.model, contents=content_parts)
-        return parse_json_from_response(response.text)
+        # Seznam variant názvu modelu k vyzkoušení
+        model_variants = [self.model]
+        if self.model.startswith("models/"): model_variants.append(self.model.replace("models/", ""))
+        else: model_variants.append(f"models/{self.model}")
+        
+        last_exception = None
+        for m in model_variants:
+            try:
+                response = self.client.models.generate_content(model=m, contents=content_parts)
+                return parse_json_from_response(response.text)
+            except Exception as e:
+                last_exception = e
+                if "404" not in str(e): raise # Pokud to není 404, vyhodíme chybu (např. 429)
+        
+        # Pokud jsme se dostali sem, všechny varianty selhaly s 404
+        print(f"  [!] Model '{self.model}' nebyl nalezen ani v jedné variantě.")
+        try:
+            models = [m.name for m in self.client.models.list()]
+            print(f"  [!] Dostupné modely pro váš klíč: {', '.join(models[:10])}...")
+        except: pass
+        raise last_exception
 
 
 def rate_batch_with_retry(provider, prompt: str, images: list[Path]) -> dict[str, int]:

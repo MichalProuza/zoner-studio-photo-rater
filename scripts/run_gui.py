@@ -40,7 +40,7 @@ def run_mode(mode_name):
 
 MODELS = {
     "anthropic": ["claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022", "claude-3-opus-20240229"],
-    "gemini": ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-flash-8b", "gemini-1.5-pro"]
+    "gemini": ["gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-1.5-pro", "gemini-2.5-flash"]
 }
 
 def ensure_dependencies():
@@ -212,6 +212,7 @@ class App(tk.Tk):
     def _run_workflow(self, fol, prov, key, mod):
         src, env = Path(fol), os.environ.copy()
         env["ANTHROPIC_API_KEY" if prov == "anthropic" else "GEMINI_API_KEY"] = key
+        env["PYTHONIOENCODING"] = "utf-8"
         
         if _FROZEN:
             exe_base = [sys.executable]
