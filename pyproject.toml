@@ -14,5 +14,10 @@ dependencies = [
   "anthropic>=0.40.0",
 ]
 
+[project.optional-dependencies]
+build = [
+  "pyinstaller>=6.0",
+]
+
 [tool.setuptools]
 py-modules = []

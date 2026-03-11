@@ -23,6 +23,9 @@ from pathlib import Path
 SCRIPTS_DIR = Path(__file__).parent
 PROJECT_ROOT = SCRIPTS_DIR.parent
 
+# Detekce PyInstaller frozen módu
+_FROZEN = getattr(sys, "frozen", False)
+
 
 def _config_path() -> Path:
     """Vrátí cestu ke konfiguračnímu souboru (~/.config/zps-rater/config.ini)."""
@@ -230,7 +233,7 @@ class App(tk.Tk):
         )
         thread.start()
 
-    def _run_step(self, label: str, cmd: list, env: dict) -> bool:
+    def _run_step(self, label: str, cmd: list, env: dict, cwd: Path = PROJECT_ROOT) -> bool:
         """Run one subprocess and stream its output to the log.
 
         Returns True on success, False on failure.
@@ -248,7 +251,7 @@ class App(tk.Tk):
                 text=True,
                 encoding="utf-8",
                 errors="replace",
-                cwd=PROJECT_ROOT,
+                cwd=cwd,
                 env=env,
             )
             for line in proc.stdout:
@@ -265,19 +268,37 @@ class App(tk.Tk):
         self._log(f"✗  Krok selhal (exit {proc.returncode})", "err")
         return False
 
+    # ------------------------------------------------------------------
+    # Subprocess helper
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _exe_cmd(script_name: str) -> list:
+        """Vrátí prefix příkazu pro spuštění dílčího skriptu.
+
+        V normálním (nefrozen) módu: [python, cesta/ke/skriptu.py]
+        Ve frozen (EXE) módu:        [exe, --_mode=script_name]
+        """
+        if _FROZEN:
+            return [sys.executable, f"--_mode={script_name}"]
+        return [sys.executable, str(SCRIPTS_DIR / f"{script_name}.py")]
+
     def _run_workflow(self, folder: str, api_key: str):
         source = Path(folder)
         previews = source / "_previews"
         ratings = source / "ratings.json"
-        python = sys.executable
 
         env = os.environ.copy()
         env["ANTHROPIC_API_KEY"] = api_key
         env["PYTHONUTF8"] = "1"  # Windows: všechny subprocesy píší UTF-8 do stdout
 
+        # Ve frozen módu běží subprocesy ve stejném adresáři jako exe;
+        # jinak používáme kořen projektu jako cwd.
+        cwd = Path(sys.executable).parent if _FROZEN else PROJECT_ROOT
+
         # ── Step 1: Extract previews ───────────────────────────────────
         cmd = [
-            python, str(SCRIPTS_DIR / "extract_previews.py"),
+            *self._exe_cmd("extract_previews"),
             str(source),
             "--output", str(previews),
             "--max-size", "800",
@@ -285,20 +306,20 @@ class App(tk.Tk):
         if self.recursive_var.get():
             cmd.append("--recursive")
 
-        if not self._run_step("[1/3] Extrakce náhledů ze RAW souborů", cmd, env):
+        if not self._run_step("[1/3] Extrakce náhledů ze RAW souborů", cmd, env, cwd):
             self._set_progress("Chyba v kroku 1")
             self._set_running(False)
             return
 
         # ── Step 2: Rate with AI ───────────────────────────────────────
         cmd = [
-            python, str(SCRIPTS_DIR / "rate_with_ai.py"),
+            *self._exe_cmd("rate_with_ai"),
             str(previews),
             "--output", str(ratings),
             "--batch-size", "5",
             "--resume",
         ]
-        if not self._run_step("[2/3] Hodnocení pomocí Claude AI", cmd, env):
+        if not self._run_step("[2/3] Hodnocení pomocí Claude AI", cmd, env, cwd):
             self._set_progress("Chyba v kroku 2")
             self._set_running(False)
             return
@@ -311,7 +332,7 @@ class App(tk.Tk):
 
         # ── Step 3: Apply ratings to XMP ──────────────────────────────
         cmd = [
-            python, str(SCRIPTS_DIR / "apply_ratings.py"),
+            *self._exe_cmd("apply_ratings"),
             str(ratings),
             "--xmp-only",
             "--source-dir", str(source),
@@ -319,7 +340,7 @@ class App(tk.Tk):
         if self.dry_run_var.get():
             cmd.append("--dry-run")
 
-        if not self._run_step("[3/3] Zápis hodnocení do XMP souborů", cmd, env):
+        if not self._run_step("[3/3] Zápis hodnocení do XMP souborů", cmd, env, cwd):
             self._set_progress("Chyba v kroku 3")
             self._set_running(False)
             return

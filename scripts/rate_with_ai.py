@@ -209,7 +209,13 @@ def main() -> None:
         sys.exit(1)
 
     # Načtení promptu
-    prompt_path = Path(__file__).parent.parent / "prompts" / "RATING_PROMPT_V2.md"
+    # Ve frozen (PyInstaller) módu jsou datové soubory v sys._MEIPASS,
+    # jinak hledáme relativně k tomuto skriptu.
+    if getattr(sys, "frozen", False):
+        _base = Path(sys._MEIPASS)  # type: ignore[attr-defined]
+    else:
+        _base = Path(__file__).parent.parent
+    prompt_path = _base / "prompts" / "RATING_PROMPT_V2.md"
     if not prompt_path.exists():
         print(f"Prompt nenalezen: {prompt_path}", file=sys.stderr)
         sys.exit(1)
