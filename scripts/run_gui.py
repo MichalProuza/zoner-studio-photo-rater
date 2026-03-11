@@ -212,6 +212,7 @@ class App(tk.Tk):
     def _run_workflow(self, fol, prov, key, mod):
         src, env = Path(fol), os.environ.copy()
         env["ANTHROPIC_API_KEY" if prov == "anthropic" else "GEMINI_API_KEY"] = key
+        env["PYTHONIOENCODING"] = "utf-8"
         
         if _FROZEN:
             exe_base = [sys.executable]
