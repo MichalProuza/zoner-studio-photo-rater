@@ -237,7 +237,7 @@ class App(tk.Tk):
             return self.btn.config(state="normal")
         
         # Step 3: XMP
-        c3 = [*exe_base, "--_mode=apply_ratings", str(src/"ratings.json"), "-s", str(src)]
+        c3 = [*exe_base, "--_mode=apply_ratings", str(src/"ratings.json"), "--xmp-only", "--source-dir", str(src)]
         if self.dry_run_var.get(): c3.append("-n")
         self._run_step("Zápis XMP", c3, env, cwd)
         
