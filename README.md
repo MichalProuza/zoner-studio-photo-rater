@@ -16,9 +16,6 @@ Python nástroj pro automatizovaný workflow:
 - [Struktura projektu](#struktura-projektu)
 - [Rychlý start — grafické rozhraní (GUI)](#rychlý-start--grafické-rozhraní-gui)
 - [Workflow krok za krokem](#workflow-krok-za-rokem)
-  - [1. Extrakce náhledů](#1-extrakce-náhledů)
-  - [2. AI hodnocení](#2-ai-hodnocení)
-  - [3. Zápis do XMP metadata](#3-zápis-do-xmp-metadata)
 
 ---
 
@@ -33,56 +30,39 @@ Python nástroj pro automatizovaný workflow:
 
 ## Instalace
 
-```bash
-python -m venv .venv
-.venv\Scripts\activate          # Windows PowerShell
+Nejdříve si vytvořte virtuální prostředí a nainstalujte všechny potřebné knihovny:
 
+```powershell
+# 1. Vytvoření virtuálního prostředí
+python -m venv .venv
+
+# 2. Aktivace prostředí (Windows PowerShell)
+.venv\Scripts\activate
+
+# 3. Instalace všech závislostí (včetně rawpy, Pillow, anthropic a google-generativeai)
 pip install -U pip
 pip install -e .
 ```
 
-*Poznámka: Pro Gemini je vyžadována knihovna `google-generativeai`, pro Anthropic `anthropic`.*
+Pokud preferujete ruční instalaci jednotlivých balíčků:
+```bash
+pip install rawpy Pillow anthropic google-generativeai
+```
 
 ---
 
 ## Rychlý start — grafické rozhraní (GUI)
 
-Nejjednodušší způsob použití — žádné příkazy v terminálu:
+Spusťte GUI a postupujte podle instrukcí na obrazovce:
 
 ```powershell
 python scripts/run_gui.py
 ```
 
 **Postup v GUI:**
-
 1. Klikni na **Vybrat…** a vyber složku s RAW fotkami
 2. Vyber **Poskytovatele** (Anthropic nebo Google) a zadej svůj **API klíč**
 3. Klikni na **▶ Spustit celý workflow**
-
-GUI automaticky provede všechny tři kroky:
-- `[1/3]` Extrakce náhledů ze RAW souborů → `<složka>/_previews/`
-- `[2/3]` Hodnocení pomocí Claude nebo Gemini → `<složka>/ratings.json`
-- `[3/3]` Zápis hodnocení do XMP souborů → `<složka>/*.xmp`
-
----
-
-## Workflow krok za krokem
-
-### 1. Extrakce náhledů
-**Skript:** `scripts/extract_previews.py`
-Extrahujeme vložené náhledy pro rychlou analýzu bez nutnosti plného vyvolání RAWu.
-
-### 2. AI hodnocení
-**Skript:** `scripts/rate_with_ai.py`
-Podporuje přepínání mezi modely pomocí parametru `--provider`.
-
-```bash
-# Použití Gemini (výchozí model gemini-1.5-flash)
-python scripts/rate_with_ai.py ./_previews --provider gemini --gemini-api-key VAŠ_KLÍČ
-
-# Použití Anthropic (výchozí model claude-3-5-sonnet)
-python scripts/rate_with_ai.py ./_previews --provider anthropic --anthropic-api-key VAŠ_KLÍČ
-```
 
 ---
 
