@@ -4,10 +4,6 @@ rate_with_ai.py – automatické hodnocení náhledů pomocí AI (Anthropic nebo
 
 Použití:
     python scripts/rate_with_ai.py <previews_dir> [volitelné argumenty]
-
-Příklady:
-    python scripts/rate_with_ai.py ./previews --provider gemini --gemini-api-key YOUR_KEY
-    python scripts/rate_with_ai.py ./previews --provider anthropic --batch-size 15
 """
 
 import argparse
@@ -37,7 +33,6 @@ def encode_image(image_path: Path) -> str:
 
 def parse_json_from_response(text: str) -> dict[str, int]:
     """Extrahuje JSON blok s hodnoceními z odpovědi modelu."""
-    # Hledá JSON blok ohraničený ```json ... ```
     match = re.search(r"```json\s*(\{.*?\}|\[.*?\])\s*```", text, re.DOTALL)
     if match:
         try:
@@ -45,7 +40,6 @@ def parse_json_from_response(text: str) -> dict[str, int]:
         except json.JSONDecodeError:
             pass
 
-    # Fallback: hledá JSON objekt přímo v textu
     match = re.search(r"\{[^{}]+\}", text, re.DOTALL)
     if match:
         try:
@@ -59,7 +53,6 @@ def parse_json_from_response(text: str) -> dict[str, int]:
 def validate_ratings(ratings: dict) -> dict[str, int]:
     """Ověří a normalizuje hodnocení – hodnoty musí být celá čísla 1–5."""
     if isinstance(ratings, list):
-        # Převod z listu objektů na dict, pokud by model vrátil list
         normalized = {}
         for item in ratings:
             if isinstance(item, dict) and "SOUBOR" in item and "HODNOCENI" in item:
@@ -69,7 +62,6 @@ def validate_ratings(ratings: dict) -> dict[str, int]:
     validated = {}
     for key, value in ratings.items():
         try:
-            # Klíče mohou být s příponou i bez, my chceme bez
             clean_key = Path(key).stem
             rating = int(value)
             if 1 <= rating <= 5:
@@ -123,29 +115,36 @@ class AnthropicProvider:
 
 class GeminiProvider:
     def __init__(self, api_key: str, model: str):
-        import google.generativeai as genai
-        genai.configure(api_key=api_key)
-        self.model = genai.GenerativeModel(model)
+        # Použití nového google-genai SDK
+        from google import genai
+        self.client = genai.Client(api_key=api_key)
+        self.model = model
 
     def rate_batch(self, prompt: str, images: list[Path]) -> dict[str, int]:
-        content = [prompt]
-
+        from google.genai import types
+        
+        # Sestavení multimodálního promptu pro nové SDK
+        content_parts = [prompt]
+        
         for image_path in images:
-            content.append(f"\nSoubor: {image_path.stem}")
-            # Gemini SDK umí pracovat přímo s daty
-            img_data = {
-                "mime_type": "image/jpeg",
-                "data": image_path.read_bytes()
-            }
-            content.append(img_data)
+            content_parts.append(f"\nSoubor: {image_path.stem}")
+            # Nové SDK preferuje types.Part pro binární data
+            image_part = types.Part.from_bytes(
+                data=image_path.read_bytes(),
+                mime_type="image/jpeg"
+            )
+            content_parts.append(image_part)
 
-        content.append(
+        content_parts.append(
             "\nOhodnoť všechny výše zobrazené fotky podle instrukcí. "
             "Výsledek vrať VÝHRADNĚ jako JSON objekt ve formátu: "
             "{\"NAZEV_SOUBORU\": hodnoceni, ...} zabalený v markdown bloku ```json."
         )
 
-        response = self.model.generate_content(content)
+        response = self.client.models.generate_content(
+            model=self.model,
+            contents=content_parts
+        )
         return parse_json_from_response(response.text)
 
 
@@ -195,18 +194,17 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    # Kontrola API klíčů
     api_key = None
     if args.provider == "anthropic":
         api_key = args.anthropic_api_key or os.environ.get("ANTHROPIC_API_KEY")
         if not api_key:
-            print("Chybí Anthropic API klíč. Nastavte --anthropic-api-key nebo ANTHROPIC_API_KEY.", file=sys.stderr)
+            print("Chybí Anthropic API klíč.", file=sys.stderr)
             sys.exit(1)
         model_id = args.model or DEFAULT_ANTHROPIC_MODEL
     else:
         api_key = args.gemini_api_key or os.environ.get("GEMINI_API_KEY")
         if not api_key:
-            print("Chybí Gemini API klíč. Nastavte --gemini-api-key nebo GEMINI_API_KEY.", file=sys.stderr)
+            print("Chybí Gemini API klíč.", file=sys.stderr)
             sys.exit(1)
         model_id = args.model or DEFAULT_GEMINI_MODEL
 
@@ -215,78 +213,51 @@ def main() -> None:
         print(f"Složka neexistuje: {previews_dir}", file=sys.stderr)
         sys.exit(1)
 
-    # Načtení promptu
     if getattr(sys, "frozen", False):
         _base = Path(sys._MEIPASS)
     else:
         _base = Path(__file__).parent.parent
     prompt_path = _base / "prompts" / "RATING_PROMPT_V2.md"
-    if not prompt_path.exists():
-        print(f"Prompt nenalezen: {prompt_path}", file=sys.stderr)
-        sys.exit(1)
     prompt = load_prompt(prompt_path)
 
-    # Nalezení náhledů
     images = sorted([p for p in previews_dir.iterdir() if p.suffix.lower() in SUPPORTED_EXTENSIONS])
     if not images:
         print(f"Žádné JPEG soubory v {previews_dir}", file=sys.stderr)
         sys.exit(1)
 
-    # Resume logika
     output_path = Path(args.output)
     ratings = {}
     if args.resume and output_path.exists():
         with open(output_path, encoding="utf-8-sig") as f:
             ratings = json.load(f)
-        print(f"Načteno {len(ratings)} existujících hodnocení.")
         images = [img for img in images if img.stem not in ratings]
         if not images:
-            print("Všechny fotky jsou již ohodnoceny.")
             print_distribution(ratings)
             return
-        print(f"Zbývá ohodnotit: {len(images)} fotek")
 
-    # Inicializace poskytovatele
     try:
         if args.provider == "anthropic":
             provider = AnthropicProvider(api_key, model_id)
         else:
             provider = GeminiProvider(api_key, model_id)
     except ImportError:
-        print(f"Chybí knihovna pro {args.provider}. Nainstalujte ji pomocí: pip install {args.provider}", file=sys.stderr)
-        if args.provider == "gemini":
-            print("  (pro Gemini: pip install google-generativeai)", file=sys.stderr)
+        print(f"Chybí knihovna pro {args.provider}.", file=sys.stderr)
         sys.exit(1)
 
     total = len(images)
     batches = [images[i:i + args.batch_size] for i in range(0, total, args.batch_size)]
 
-    print(f"Celkem k hodnocení: {total}")
-    print(f"Poskytovatel:      {args.provider} ({model_id})")
-    print(f"Velikost dávky:    {args.batch_size}")
-    print()
-
     for i, batch in enumerate(batches, 1):
-        start_idx = (i - 1) * args.batch_size + 1
-        end_idx = min(i * args.batch_size, total)
-        print(f"[{i}/{len(batches)}] Hodnotím fotky {start_idx}–{end_idx}...")
-
+        print(f"[{i}/{len(batches)}] Hodnotím fotky...")
         try:
             batch_ratings = rate_batch_with_retry(provider, prompt, batch)
             ratings.update(batch_ratings)
-
             with open(output_path, "w", encoding="utf-8") as f:
                 json.dump(ratings, f, ensure_ascii=False, indent=2)
-
-            print(f"  ✔ {len(batch_ratings)} hodnocení uloženo ({len(ratings)} celkem)")
+            print(f"  ✔ {len(batch_ratings)} hodnocení uloženo")
         except Exception as e:
             print(f"  ✖ Dávka {i} selhala: {e}", file=sys.stderr)
-            print("  Pokračuji další dávkou...")
 
-        if i < len(batches):
-            time.sleep(1)  # Krátká pauza proti rate limitům
-
-    print(f"\nHotovo! Ohodnoceno: {len(ratings)} fotek")
     print_distribution(ratings)
 
 
