@@ -26,6 +26,11 @@ RETRY_ATTEMPTS = 5
 RETRY_DELAY = 10
 
 
+class QuotaExhaustedError(Exception):
+    """Denní kvóta API je vyčerpána a není možné pokračovat."""
+    pass
+
+
 def load_prompt(prompt_path: Path) -> str:
     try:
         return prompt_path.read_text(encoding="utf-8")
@@ -161,7 +166,10 @@ def rate_batch_with_retry(provider, prompt: str, images: list[Path]) -> dict[str
                     print("\n".join(quota_info))
                 print(f"  [!] Tip: Pokud máte nastavený Billing, API vás stále identifikuje jako Free Tier.")
                 print(f"  [!] Zkuste vygenerovat nový API klíč nebo počkejte na propagaci změn v Google Cloud.")
-                raise
+                raise QuotaExhaustedError(
+                    "Denní kvóta Gemini API (Free Tier) je vyčerpána. "
+                    "Počkejte do zítřka, nebo aktivujte placený plán a vygenerujte nový API klíč."
+                )
 
             if "429" in err_msg or "RESOURCE_EXHAUSTED" in err_msg:
                 if quota_info:
@@ -255,6 +263,10 @@ def main() -> None:
             ratings.update(batch_ratings)
             with open(output_path, "w", encoding="utf-8") as f: json.dump(ratings, f, ensure_ascii=False, indent=2)
             print(f"  [OK] {len(batch_ratings)} hodnocení uloženo")
+        except QuotaExhaustedError as e:
+            print(f"  [X] {e}")
+            print("  [!] Zpracování přerušeno – nelze pokračovat bez platné kvóty.")
+            break
         except Exception as e:
             print(f"  [X] Chyba: {e}")
 
