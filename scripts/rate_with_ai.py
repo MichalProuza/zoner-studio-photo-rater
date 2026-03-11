@@ -104,7 +104,7 @@ class GeminiProvider:
     def __init__(self, api_key: str, model: str):
         from google import genai
         self.client = genai.Client(api_key=api_key)
-        self.model = model
+        self.model = model if model.startswith("models/") else f"models/{model}"
 
     def rate_batch(self, prompt: str, images: list[Path]) -> dict[str, int]:
         from google.genai import types
@@ -115,8 +115,18 @@ class GeminiProvider:
             content_parts.append(image_part)
         content_parts.append("\nOhodnoť fotky podle instrukcí. JSON výstup v ```json bloku.")
         
-        response = self.client.models.generate_content(model=self.model, contents=content_parts)
-        return parse_json_from_response(response.text)
+        try:
+            response = self.client.models.generate_content(model=self.model, contents=content_parts)
+            return parse_json_from_response(response.text)
+        except Exception as e:
+            err_msg = str(e)
+            if "404" in err_msg and self.model.startswith("models/"):
+                fallback_model = self.model.replace("models/", "")
+                try:
+                    response = self.client.models.generate_content(model=fallback_model, contents=content_parts)
+                    return parse_json_from_response(response.text)
+                except: pass
+            raise
 
 
 def rate_batch_with_retry(provider, prompt: str, images: list[Path]) -> dict[str, int]:
