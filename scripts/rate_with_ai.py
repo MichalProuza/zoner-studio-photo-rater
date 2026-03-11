@@ -144,21 +144,43 @@ def rate_batch_with_retry(provider, prompt: str, images: list[Path]) -> dict[str
             return validate_ratings(provider.rate_batch(prompt, images))
         except Exception as e:
             err_msg = str(e)
+            
+            # Detekce vyčerpání denní kvóty (limit 0)
+            if "limit: 0" in err_msg and "quota" in err_msg.lower():
+                print(f"\n  [!!!] KRITICKÁ CHYBA: Vyčerpána denní kvóta pro tento model (limit 0).")
+                print(f"  [!] Další pokusy dnes pravděpodobně nebudou úspěšné.")
+                raise  # Vyhodíme chybu nahoru, main ji vypíše a skončí
+
             if "429" in err_msg or "RESOURCE_EXHAUSTED" in err_msg:
-                # Pokusíme se z chyby vytáhnout doporučenou dobu čekání
+                # Pokusíme se vytáhnout doporučenou dobu čekání
+                # Formát v SDK chybě: "retry in 37s" nebo "retry in 37.557s"
                 wait_match = re.search(r"retry in ([\d\.]+)s", err_msg)
-                wait_time = float(wait_match.group(1)) + 2 if wait_match else 70
+                if wait_match:
+                    wait_time = float(wait_match.group(1)) + 2
+                else:
+                    # Pokud nemáme přesný čas, použijeme progresivní čekání
+                    wait_time = 65 + (attempt * 20) 
+                
                 print(f"  [!] Dosažen limit API (429). Čekám {int(wait_time)} sekund...")
                 time.sleep(wait_time)
-                # Po čekání zkusíme znovu v rámci stejného pokusu
-                try:
-                    return validate_ratings(provider.rate_batch(prompt, images))
-                except:
-                    pass
+                
+                # Po čekání zkusíme jeden okamžitý pokus v rámci stejného 'attempt'
+                if attempt < RETRY_ATTEMPTS:
+                    try:
+                        print(f"  [i] Opakuji pokus po čekání...")
+                        return validate_ratings(provider.rate_batch(prompt, images))
+                    except Exception as e2:
+                        # Pokud i tento pokus selže, necháme to propadnout do standardního backoffu
+                        err_msg = str(e2)
+                else:
+                    raise
             
-            if attempt == RETRY_ATTEMPTS: raise
+            if attempt == RETRY_ATTEMPTS:
+                raise
+            
+            # Standardní exponenciální backoff pro ostatní chyby nebo pokud retry po 429 selhal
             wait = RETRY_DELAY * (2 ** (attempt - 1))
-            print(f"  [X] Pokus {attempt} selhal. Čekám {wait}s...")
+            print(f"  [X] Pokus {attempt} selhal ({err_msg[:100]}...). Čekám {wait}s před dalším pokusem...")
             time.sleep(wait)
     return {}
 
