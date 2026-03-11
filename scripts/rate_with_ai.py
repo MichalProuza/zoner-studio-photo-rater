@@ -104,7 +104,8 @@ class GeminiProvider:
     def __init__(self, api_key: str, model: str):
         from google import genai
         self.client = genai.Client(api_key=api_key)
-        self.model = model if model.startswith("models/") else f"models/{model}"
+        # Odstraníme případný prefix models/, knihovna si ho doplňuje sama
+        self.model = model.replace("models/", "")
 
     def rate_batch(self, prompt: str, images: list[Path]) -> dict[str, int]:
         from google.genai import types
@@ -120,11 +121,12 @@ class GeminiProvider:
             return parse_json_from_response(response.text)
         except Exception as e:
             err_msg = str(e)
-            if "404" in err_msg and self.model.startswith("models/"):
-                fallback_model = self.model.replace("models/", "")
+            if "404" in err_msg:
+                print(f"  [!] Model '{self.model}' nebyl nalezen. Zkuste jiný ze seznamu v GUI.")
                 try:
-                    response = self.client.models.generate_content(model=fallback_model, contents=content_parts)
-                    return parse_json_from_response(response.text)
+                    # Pokusíme se vypsat dostupné modely pro debug
+                    models = [m.name for m in self.client.models.list()]
+                    print(f"  [!] Dostupné modely: {', '.join(models[:10])}...")
                 except: pass
             raise
 
