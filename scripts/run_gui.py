@@ -18,10 +18,16 @@ PROJECT_ROOT = SCRIPTS_DIR.parent
 # Detekce PyInstaller frozen módu
 _FROZEN = getattr(sys, "frozen", False)
 
-# Definice modelů
+# Definice modelů založená na vaší diagnostice
 MODELS = {
     "anthropic": ["claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022", "claude-3-opus-20240229"],
-    "gemini": ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.0-flash-001"]
+    "gemini": [
+        "gemini-2.0-flash", 
+        "gemini-2.5-flash", 
+        "gemini-3.1-flash-lite-preview",
+        "gemini-1.5-flash", # Ponecháme jako fallback
+        "gemini-2.0-flash-lite"
+    ]
 }
 
 
@@ -34,7 +40,7 @@ def ensure_dependencies():
         "rawpy": "rawpy",
         "PIL": "Pillow",
         "anthropic": "anthropic",
-        "google.genai": "google-genai"  # Nová verze SDK
+        "google.genai": "google-genai"
     }
 
     missing = []
@@ -50,10 +56,8 @@ def ensure_dependencies():
     if missing:
         print(f"Chybějící knihovny: {', '.join(missing)}. Pokouším se o instalaci...")
         try:
-            # Odstraníme starou verzi, pokud tam je a způsobuje konflikty
             if "google-genai" in missing:
                 subprocess.call([sys.executable, "-m", "pip", "uninstall", "-y", "google-generativeai"], stdout=subprocess.DEVNULL)
-            
             subprocess.check_call([sys.executable, "-m", "pip", "install", *missing])
             print("Instalace byla úspěšná.")
         except Exception as e:
