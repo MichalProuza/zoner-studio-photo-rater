@@ -12,44 +12,48 @@ import tkinter as tk
 from tkinter import ttk, filedialog, scrolledtext
 from pathlib import Path
 
-# Zajištění, aby Python viděl kořenový adresář pro importy
+# Zajištění cest
 SCRIPTS_DIR = Path(__file__).parent
 PROJECT_ROOT = SCRIPTS_DIR.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-# Importy pro "router" v EXE režimu (nyní relativní/absolutní vůči sys.path)
-try:
-    import scripts.extract_previews as extract_previews
-    import scripts.rate_with_ai as rate_with_ai
-    import scripts.apply_ratings as apply_ratings
-except ImportError:
-    # Fallback pro přímé spuštění ze složky scripts
-    import extract_previews as extract_previews
-    import rate_with_ai as rate_with_ai
-    import apply_ratings as apply_ratings
-
 _FROZEN = getattr(sys, "frozen", False)
+
+def run_mode(mode_name):
+    # Debug výpis do stdout (zachytí subproces)
+    print(f"DEBUG: Vstupuji do režimu: {mode_name}")
+    try:
+        if mode_name == "extract_previews":
+            from scripts import extract_previews as m
+        elif mode_name == "rate_with_ai":
+            from scripts import rate_with_ai as m
+        elif mode_name == "apply_ratings":
+            from scripts import apply_ratings as m
+        else: return
+        m.main()
+    except Exception as e:
+        print(f"CHYBA v režimu {mode_name}: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
 
 MODELS = {
     "anthropic": ["claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022", "claude-3-opus-20240229"],
-    "gemini": ["gemini-2.0-flash", "gemini-2.5-flash", "gemini-3.1-flash-lite-preview", "gemini-1.5-flash", "gemini-2.0-flash-lite"]
+    "gemini": ["gemini-2.0-flash", "gemini-2.5-flash", "gemini-3.1-flash-lite-preview", "gemini-1.5-flash"]
 }
 
 def ensure_dependencies():
     if _FROZEN: return
     required = {"rawpy": "rawpy", "PIL": "Pillow", "anthropic": "anthropic", "google.genai": "google-genai"}
-    missing = []
     for module, package in required.items():
         try:
             if module == "google.genai": from google import genai
             else: __import__(module)
-        except ImportError: missing.append(package)
-    if missing:
-        try:
-            if "google-genai" in missing: subprocess.call([sys.executable, "-m", "pip", "uninstall", "-y", "google-generativeai"], stdout=subprocess.DEVNULL)
-            subprocess.check_call([sys.executable, "-m", "pip", "install", *missing])
-        except: pass
+        except ImportError:
+            try:
+                subprocess.check_call([sys.executable, "-m", "pip", "install", package])
+            except: pass
 
 def _config_path() -> Path:
     if sys.platform == "win32": base = Path(os.environ.get("APPDATA", Path.home()))
@@ -60,13 +64,15 @@ def load_config() -> dict:
     config_file = _config_path()
     data = {"provider": "anthropic", "anthropic_key": "", "gemini_key": "", "anthropic_model": MODELS["anthropic"][0], "gemini_model": MODELS["gemini"][0]}
     if config_file.exists():
-        cfg = configparser.ConfigParser()
-        cfg.read(config_file, encoding="utf-8")
-        data["provider"] = cfg.get("settings", "provider", fallback="anthropic")
-        data["anthropic_key"] = cfg.get("anthropic", "api_key", fallback="")
-        data["gemini_key"] = cfg.get("gemini", "api_key", fallback="")
-        data["anthropic_model"] = cfg.get("anthropic", "model", fallback=MODELS["anthropic"][0])
-        data["gemini_model"] = cfg.get("gemini", "model", fallback=MODELS["gemini"][0])
+        try:
+            cfg = configparser.ConfigParser()
+            cfg.read(config_file, encoding="utf-8")
+            data["provider"] = cfg.get("settings", "provider", fallback="anthropic")
+            data["anthropic_key"] = cfg.get("anthropic", "api_key", fallback="")
+            data["gemini_key"] = cfg.get("gemini", "api_key", fallback="")
+            data["anthropic_model"] = cfg.get("anthropic", "model", fallback=MODELS["anthropic"][0])
+            data["gemini_model"] = cfg.get("gemini", "model", fallback=MODELS["gemini"][0])
+        except: pass
     return data
 
 def save_config(p, ak, gk, am, gm):
@@ -142,8 +148,6 @@ class App(tk.Tk):
         
         self.btn = ttk.Button(self, text="▶ Spustit", command=self._start, style="Run.TButton")
         self.btn.pack(pady=10)
-        self.pr_var = tk.StringVar()
-        ttk.Label(self, textvariable=self.pr_var, foreground="#0066cc").pack()
         
         f_l = ttk.LabelFrame(self, text="Log")
         f_l.pack(fill="both", expand=True, **p)
@@ -172,7 +176,7 @@ class App(tk.Tk):
         if f: self.folder_var.set(f)
 
     def _log(self, t, tag=""):
-        self.after(0, lambda: (self.log.config(state="normal"), self.log.insert("end", t + "\n", tag), self.log.see("end"), self.log.config(state="disabled")))
+        self.after(0, lambda: (self.log.config(state="normal"), self.log.insert("end", str(t) + "\n", tag), self.log.see("end"), self.log.config(state="disabled")))
 
     def _start(self):
         fol, prov, mod = self.folder_var.get().strip(), self.provider_var.get(), self.cb.get()
@@ -184,47 +188,71 @@ class App(tk.Tk):
     def _run_step(self, lbl, cmd, env, cwd):
         self._log(f"\n=== {lbl} ===", "hdr")
         try:
-            startupinfo = None
-            if sys.platform == "win32":
-                startupinfo = subprocess.STARTUPINFO()
-                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-            
-            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace", cwd=cwd, env=env, startupinfo=startupinfo)
-            for line in proc.stdout: self._log(line.rstrip())
+            # Na Windows v EXE musíme použít správné příznaky, aby se proces neskryl úplně,
+            # pokud chceme vidět výstup v logu.
+            proc = subprocess.Popen(
+                cmd, 
+                stdout=subprocess.PIPE, 
+                stderr=subprocess.STDOUT, 
+                text=True, 
+                encoding="utf-8", 
+                errors="replace", 
+                cwd=cwd, 
+                env=env,
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
+            )
+            for line in proc.stdout:
+                self._log(line.rstrip())
             proc.wait()
             return proc.returncode == 0
         except Exception as e:
-            self._log(f"Chyba: {e}", "err")
+            self._log(f"CHYBA: {e}", "err")
             return False
 
     def _run_workflow(self, fol, prov, key, mod):
         src, env = Path(fol), os.environ.copy()
         env["ANTHROPIC_API_KEY" if prov == "anthropic" else "GEMINI_API_KEY"] = key
-        cwd = Path(sys.executable).parent if _FROZEN else PROJECT_ROOT
-        exe_path = [sys.executable]
         
-        c1 = [*exe_path, "--_mode=extract_previews", str(src), "-o", str(src/"_previews")]
+        if _FROZEN:
+            exe_base = [sys.executable]
+            cwd = Path(sys.executable).parent
+        else:
+            exe_base = [sys.executable, sys.argv[0]]
+            cwd = PROJECT_ROOT
+        
+        # Step 1: Previews
+        c1 = [*exe_base, "--_mode=extract_previews", str(src), "-o", str(src/"_previews")]
         if self.recursive_var.get(): c1.append("-r")
-        if not self._run_step("Extrakce", c1, env, cwd): return self.btn.config(state="normal")
+        if not self._run_step("Extrakce", c1, env, cwd): 
+            self._log("\nKrok Extrakce selhal.", "err")
+            return self.btn.config(state="normal")
         
-        c2 = [*exe_path, "--_mode=rate_with_ai", str(src/"_previews"), "-o", str(src/"ratings.json"), "--provider", prov, "--model", mod, "--resume"]
-        if not self._run_step("Hodnocení", c2, env, cwd): return self.btn.config(state="normal")
+        # Step 2: Rate
+        c2 = [*exe_base, "--_mode=rate_with_ai", str(src/"_previews"), "-o", str(src/"ratings.json"), "--provider", prov, "--model", mod, "--resume"]
+        if not self._run_step("Hodnocení", c2, env, cwd): 
+            self._log("\nKrok Hodnocení selhal.", "err")
+            return self.btn.config(state="normal")
         
-        c3 = [*exe_path, "--_mode=apply_ratings", str(src/"ratings.json"), "-s", str(src)]
+        # Step 3: XMP
+        c3 = [*exe_base, "--_mode=apply_ratings", str(src/"ratings.json"), "-s", str(src)]
         if self.dry_run_var.get(): c3.append("-n")
         self._run_step("Zápis XMP", c3, env, cwd)
-        self._log("\n✔ Hotovo!", "ok")
+        
+        self._log("\n✔ Všechny kroky dokončeny!", "ok")
         self.btn.config(state="normal")
 
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1].startswith("--_mode="):
         mode = sys.argv[1].split("=")[1]
-        target_mode = mode
         sys.argv.pop(1)
-        if target_mode == "extract_previews": extract_previews.main()
-        elif target_mode == "rate_with_ai": rate_with_ai.main()
-        elif target_mode == "apply_ratings": apply_ratings.main()
+        run_mode(mode)
         sys.exit(0)
     
-    ensure_dependencies()
-    App().mainloop()
+    try:
+        ensure_dependencies()
+        App().mainloop()
+    except Exception as e:
+        with open(os.path.join(os.path.expanduser("~"), "zps_rater_crash.txt"), "w") as f:
+            import traceback
+            traceback.print_exc(file=f)
+        sys.exit(1)

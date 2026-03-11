@@ -1,184 +1,90 @@
 #!/usr/bin/env python3
 """
 Extrakce embedded JPEG náhledů z RAW souborů.
-
-Používá rawpy k rychlé extrakci vloženého JPEG z RAW souborů
-bez nutnosti renderování. Většina RAW formátů (RAF, CR2, NEF, ARW, DNG...)
-obsahuje plnorozlišení JPEG náhled.
-
-Použití:
-    python scripts/extract_previews.py /cesta/k/raw --output /tmp/zps_previews
-    python scripts/extract_previews.py /cesta/k/raw --max-size 1024 --output ./previews
 """
 
 import argparse
-import io
 import os
 import sys
 import time
 from pathlib import Path
 
+# Pokus o import rawpy s jasnou chybou
 try:
     import rawpy
 except ImportError:
-    print("Chyba: nainstaluj rawpy → pip install rawpy")
+    print("CHYBA: Knihovna 'rawpy' není nainstalována. Spusťte: pip install rawpy", file=sys.stderr)
     sys.exit(1)
 
 try:
     from PIL import Image
 except ImportError:
-    print("Chyba: nainstaluj Pillow → pip install Pillow")
+    print("CHYBA: Knihovna 'Pillow' není nainstalována. Spusťte: pip install Pillow", file=sys.stderr)
     sys.exit(1)
 
-# Podporované RAW formáty
-RAW_EXTENSIONS = {
-    ".raf",  # Fujifilm
-    ".cr2", ".cr3",  # Canon
-    ".nef", ".nrw",  # Nikon
-    ".arw", ".srf", ".sr2",  # Sony
-    ".dng",  # Adobe DNG
-    ".orf",  # Olympus
-    ".rw2",  # Panasonic
-    ".pef",  # Pentax
-    ".srw",  # Samsung
-    ".x3f",  # Sigma
-    ".3fr",  # Hasselblad
-    ".iiq",  # Phase One
-    ".rwl",  # Leica
-    ".erf",  # Epson
-}
+SUPPORTED_RAW = {".raf", ".cr2", ".cr3", ".nef", ".arw", ".dng", ".orf", ".srw"}
 
-
-def extract_preview(raw_path: Path, output_dir: Path, max_size: int = 800) -> bool:
-    """
-    Extrahuje embedded JPEG z RAW souboru a uloží zmenšený náhled.
-
-    Args:
-        raw_path: Cesta k RAW souboru
-        output_dir: Cílový adresář pro náhledy
-        max_size: Maximální rozměr (delší strana) v pixelech
-
-    Returns:
-        True pokud úspěšně extrahováno, False jinak
-    """
+def extract_thumbnail(raw_path: Path, output_dir: Path, max_size: int = 800) -> bool:
     try:
-        raw = rawpy.imread(str(raw_path))
-        thumb = raw.extract_thumb()
+        with rawpy.imread(str(raw_path)) as raw:
+            try:
+                thumb = raw.extract_thumb()
+            except rawpy.LibRawNoThumbnailError:
+                return False
+            except Exception:
+                return False
 
-        if thumb.format == rawpy.ThumbFormat.JPEG:
-            img = Image.open(io.BytesIO(thumb.data))
-        elif thumb.format == rawpy.ThumbFormat.BITMAP:
-            # Některé formáty mají bitmap místo JPEG
-            img = Image.fromarray(thumb.data)
-        else:
-            print(f"  ⚠ Neznámý formát náhledu: {raw_path.name}")
+            if thumb.format == rawpy.ThumbFormat.JPEG:
+                target_path = output_dir / f"{raw_path.stem}.jpg"
+                with open(target_path, "wb") as f:
+                    f.write(thumb.data)
+                
+                # Zmenšení pro AI
+                if max_size:
+                    with Image.open(target_path) as img:
+                        img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
+                        img.save(target_path, "JPEG", quality=85)
+                return True
             return False
-
-        # Zachovat poměr stran, omezit na max_size
-        img.thumbnail((max_size, max_size), Image.LANCZOS)
-
-        # Uložit jako JPEG
-        output_path = output_dir / f"{raw_path.stem}.jpg"
-        img.save(str(output_path), "JPEG", quality=85)
-
-        raw.close()
-        return True
-
-    except rawpy.LibRawNoThumbnailError:
-        print(f"  ⚠ Žádný náhled: {raw_path.name}")
+    except Exception:
         return False
-    except rawpy.LibRawError as e:
-        print(f"  ✗ Chyba rawpy: {raw_path.name} → {e}")
-        return False
-    except Exception as e:
-        print(f"  ✗ Neočekávaná chyba: {raw_path.name} → {e}")
-        return False
-
-
-def find_raw_files(source_dir: Path) -> list[Path]:
-    """Najde všechny RAW soubory v adresáři (nerekurzivně)."""
-    files = []
-    for f in sorted(source_dir.iterdir()):
-        if f.is_file() and f.suffix.lower() in RAW_EXTENSIONS:
-            files.append(f)
-    return files
-
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Extrakce JPEG náhledů z RAW souborů pro AI hodnocení"
-    )
-    parser.add_argument(
-        "source",
-        type=Path,
-        help="Adresář s RAW soubory"
-    )
-    parser.add_argument(
-        "--output", "-o",
-        type=Path,
-        default=Path("/tmp/zps_previews"),
-        help="Výstupní adresář pro náhledy (výchozí: /tmp/zps_previews)"
-    )
-    parser.add_argument(
-        "--max-size", "-s",
-        type=int,
-        default=800,
-        help="Max rozměr delší strany v px (výchozí: 800)"
-    )
-    parser.add_argument(
-        "--recursive", "-r",
-        action="store_true",
-        help="Hledat RAW soubory i v podadresářích"
-    )
-
+    parser = argparse.ArgumentParser()
+    parser.add_argument("input", help="Složka s RAW soubory")
+    parser.add_argument("--output", "-o", required=True, help="Výstupní složka")
+    parser.add_argument("--max-size", type=int, default=800)
+    parser.add_argument("--recursive", "-r", action="store_true")
     args = parser.parse_args()
 
-    if not args.source.is_dir():
-        print(f"Chyba: '{args.source}' není adresář")
-        sys.exit(1)
+    input_dir = Path(args.input)
+    output_dir = Path(args.output)
+    output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Najít RAW soubory
+    print(f"Hledám fotky v: {input_dir}")
+    
     if args.recursive:
-        raw_files = sorted([
-            f for f in args.source.rglob("*")
-            if f.is_file() and f.suffix.lower() in RAW_EXTENSIONS
-        ])
+        files = []
+        for ext in SUPPORTED_RAW:
+            files.extend(input_dir.rglob(f"*{ext}"))
+            files.extend(input_dir.rglob(f"*{ext.upper()}"))
     else:
-        raw_files = find_raw_files(args.source)
+        files = [p for p in input_dir.iterdir() if p.suffix.lower() in SUPPORTED_RAW]
 
-    if not raw_files:
-        print(f"Žádné RAW soubory nenalezeny v '{args.source}'")
-        sys.exit(0)
+    if not files:
+        print("Nenalezeny žádné podporované RAW soubory.")
+        return
 
-    print(f"Nalezeno {len(raw_files)} RAW souborů")
-    print(f"Výstup: {args.output}")
-    print(f"Max rozměr: {args.max_size}px")
-    print()
-
-    # Vytvořit výstupní adresář
-    args.output.mkdir(parents=True, exist_ok=True)
-
-    # Extrahovat náhledy
+    print(f"Nalezeno {len(files)} RAW souborů. Extrahuji náhledy...")
+    
     success = 0
-    failed = 0
-    start = time.time()
-
-    for i, raw_file in enumerate(raw_files, 1):
-        status = f"[{i}/{len(raw_files)}]"
-        if extract_preview(raw_file, args.output, args.max_size):
-            print(f"  ✓ {status} {raw_file.name}")
+    for i, f in enumerate(files, 1):
+        if extract_thumbnail(f, output_dir, args.max_size):
             success += 1
-        else:
-            failed += 1
+        if i % 10 == 0:
+            print(f"  Zpracováno {i}/{len(files)}...")
 
-    elapsed = time.time() - start
-    print()
-    print(f"Hotovo za {elapsed:.1f}s")
-    print(f"  ✓ Extrahováno: {success}")
-    if failed:
-        print(f"  ✗ Selhalo: {failed}")
-    print(f"  Náhledy uloženy v: {args.output}")
-
+    print(f"Hotovo. Extrahováno {success} náhledů do {output_dir}")
 
 if __name__ == "__main__":
     main()
