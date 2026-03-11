@@ -145,32 +145,43 @@ def rate_batch_with_retry(provider, prompt: str, images: list[Path]) -> dict[str
         except Exception as e:
             err_msg = str(e)
             
+            # Extrakce podrobných informací o kvótách (pro Gemini)
+            quota_info = []
+            if "quotaMetric" in err_msg:
+                # Pokusíme se najít názvy metrik a ID kvót
+                metrics = re.findall(r"quotaMetric': '([^']+)'", err_msg)
+                quota_ids = re.findall(r"quotaId': '([^']+)'", err_msg)
+                for m, q in zip(metrics, quota_ids):
+                    quota_info.append(f"    - Metrika: {m}\n    - ID kvóty: {q}")
+
             # Detekce vyčerpání denní kvóty (limit 0)
             if "limit: 0" in err_msg and "quota" in err_msg.lower():
                 print(f"\n  [!!!] KRITICKÁ CHYBA: Vyčerpána denní kvóta pro tento model (limit 0).")
-                print(f"  [!] Další pokusy dnes pravděpodobně nebudou úspěšné.")
-                raise  # Vyhodíme chybu nahoru, main ji vypíše a skončí
+                if quota_info:
+                    print("\n".join(quota_info))
+                print(f"  [!] Tip: Pokud máte nastavený Billing, API vás stále identifikuje jako Free Tier.")
+                print(f"  [!] Zkuste vygenerovat nový API klíč nebo počkejte na propagaci změn v Google Cloud.")
+                raise
 
             if "429" in err_msg or "RESOURCE_EXHAUSTED" in err_msg:
+                if quota_info:
+                    print(f"  [!] Detaily omezení:\n" + "\n".join(quota_info))
+                
                 # Pokusíme se vytáhnout doporučenou dobu čekání
-                # Formát v SDK chybě: "retry in 37s" nebo "retry in 37.557s"
                 wait_match = re.search(r"retry in ([\d\.]+)s", err_msg)
                 if wait_match:
                     wait_time = float(wait_match.group(1)) + 2
                 else:
-                    # Pokud nemáme přesný čas, použijeme progresivní čekání
                     wait_time = 65 + (attempt * 20) 
                 
                 print(f"  [!] Dosažen limit API (429). Čekám {int(wait_time)} sekund...")
                 time.sleep(wait_time)
                 
-                # Po čekání zkusíme jeden okamžitý pokus v rámci stejného 'attempt'
                 if attempt < RETRY_ATTEMPTS:
                     try:
                         print(f"  [i] Opakuji pokus po čekání...")
                         return validate_ratings(provider.rate_batch(prompt, images))
                     except Exception as e2:
-                        # Pokud i tento pokus selže, necháme to propadnout do standardního backoffu
                         err_msg = str(e2)
                 else:
                     raise
@@ -178,7 +189,6 @@ def rate_batch_with_retry(provider, prompt: str, images: list[Path]) -> dict[str
             if attempt == RETRY_ATTEMPTS:
                 raise
             
-            # Standardní exponenciální backoff pro ostatní chyby nebo pokud retry po 429 selhal
             wait = RETRY_DELAY * (2 ** (attempt - 1))
             print(f"  [X] Pokus {attempt} selhal ({err_msg[:100]}...). Čekám {wait}s před dalším pokusem...")
             time.sleep(wait)
