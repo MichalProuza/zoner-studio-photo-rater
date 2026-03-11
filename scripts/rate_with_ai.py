@@ -209,7 +209,6 @@ def print_distribution(ratings: dict[str, int]) -> None:
 
 
 def main() -> None:
-    print("--- Zoner Studio Photo Rater - Gemini Debug V2.2 ---")
     parser = argparse.ArgumentParser()
     parser.add_argument("previews_dir")
     parser.add_argument("--output", "-o", default="ratings.json")
