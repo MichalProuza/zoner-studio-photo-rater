@@ -40,7 +40,7 @@ def run_mode(mode_name):
 
 MODELS = {
     "anthropic": ["claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5-20251001", "claude-3-7-sonnet-20250219"],
-    "gemini": ["gemini-2.0-flash", "gemini-2.0-flash-lite"]
+    "gemini": ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash-001", "gemini-2.0-flash-lite"]
 }
 
 def ensure_dependencies():
