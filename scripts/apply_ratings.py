@@ -118,30 +118,46 @@ def write_xmp_rating(file_path: Path, rating: int, dry_run: bool = False) -> tup
             # Načíst existující XMP – toleruje BOM
             content = xmp_path.read_text(encoding="utf-8-sig")
 
-            # Pokud už XMP obsahuje hodnocení, nepřepisovat
+            # Pokud už XMP obsahuje hodnocení (1-5), nepřepisovat
+            # Rating 0 = bez hodnocení, ten přepíšeme
             existing = _read_xmp_rating(content)
-            if existing is not None:
+            if existing is not None and existing > 0:
                 return True, "skipped"
 
-            # Rating neexistuje — přidat do prvního rdf:Description
-            new_content = content
-            if "xmlns:xmp=" not in new_content:
+            if existing == 0:
+                # Rating je 0 — nahradit existující hodnotu
                 new_content = re.sub(
-                    r"(<rdf:Description\b)",
-                    r'\1 xmlns:xmp="http://ns.adobe.com/xap/1.0/"',
+                    r'(xmp:Rating=")0(")',
+                    rf"\g<1>{rating}\2",
+                    content,
+                )
+                if new_content == content:
+                    # Zkusit element syntax
+                    new_content = re.sub(
+                        r"(<xmp:Rating>)0(</xmp:Rating>)",
+                        rf"\g<1>{rating}\2",
+                        content,
+                    )
+            else:
+                # Rating neexistuje — přidat do prvního rdf:Description
+                new_content = content
+                if "xmlns:xmp=" not in new_content:
+                    new_content = re.sub(
+                        r"(<rdf:Description\b)",
+                        r'\1 xmlns:xmp="http://ns.adobe.com/xap/1.0/"',
+                        new_content,
+                        count=1,
+                    )
+                # Vložit xmp:Rating atribut do prvního rdf:Description tagu
+                new_content, added = re.subn(
+                    r"(<rdf:Description\b[^/>]*)",
+                    rf'\1\n      xmp:Rating="{rating}"',
                     new_content,
                     count=1,
                 )
-            # Vložit xmp:Rating atribut do prvního rdf:Description tagu
-            new_content, added = re.subn(
-                r"(<rdf:Description\b[^/>]*)",
-                rf'\1\n      xmp:Rating="{rating}"',
-                new_content,
-                count=1,
-            )
-            if added == 0:
-                print(f"  ⚠ XMP soubor {xmp_path.name} nemá rdf:Description, nelze vložit Rating")
-                return False, "error"
+                if added == 0:
+                    print(f"  ⚠ XMP soubor {xmp_path.name} nemá rdf:Description, nelze vložit Rating")
+                    return False, "error"
 
             if not dry_run:
                 xmp_path.write_text(new_content, encoding="utf-8")
