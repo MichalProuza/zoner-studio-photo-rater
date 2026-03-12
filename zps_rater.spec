@@ -4,7 +4,7 @@ from pathlib import Path
 ROOT = Path(SPECPATH)
 
 a = Analysis(
-    [str(ROOT / "scripts" / "run_gui.py")],
+    [str(ROOT / "main.py")],
     pathex=[str(ROOT)],
     binaries=[],
     datas=[
