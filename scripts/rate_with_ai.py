@@ -20,7 +20,7 @@ if sys.platform == "win32":
 
 SUPPORTED_EXTENSIONS = {".jpg", ".jpeg"}
 DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-6"
-DEFAULT_GEMINI_MODEL = "gemini-2.0-flash"
+DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
 DEFAULT_BATCH_SIZE = 30  # Zvětšeno pro snížení počtu požadavků
 RETRY_ATTEMPTS = 5
 RETRY_DELAY = 10
@@ -223,7 +223,9 @@ MODEL_PRICING = {
     "claude-opus-4-6":            (15.0, 75.0),
     "claude-haiku-4-5-20251001":  (0.80,  4.0),
     "claude-3-7-sonnet-20250219": (3.0,  15.0),
-    "gemini-2.0-flash":           (0.10,  0.40),
+    "gemini-2.5-flash":           (0.15,  0.60),
+    "gemini-2.5-pro":             (1.25,  10.0),
+    "gemini-2.0-flash-001":       (0.10,  0.40),
     "gemini-2.0-flash-lite":      (0.075, 0.30),
 }
 
