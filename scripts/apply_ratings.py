@@ -88,15 +88,23 @@ XMP_TEMPLATE = """\
 """
 
 
-def write_xmp_rating(file_path: Path, rating: int, dry_run: bool = False) -> bool:
-    """Zapíše nebo aktualizuje xmp:Rating v XMP sidecar souboru."""
+def write_xmp_rating(file_path: Path, rating: int, dry_run: bool = False) -> tuple[bool, str]:
+    """Zapíše nebo aktualizuje xmp:Rating v XMP sidecar souboru.
+
+    Pokud XMP soubor existuje, zachová veškerý jeho obsah a pouze
+    doplní/aktualizuje atribut xmp:Rating.
+
+    Returns:
+        (success, mode) kde mode je "updated", "created" nebo "error".
+    """
     xmp_path = file_path.with_suffix(".xmp")
 
     try:
         if xmp_path.exists():
-            content = xmp_path.read_text(encoding="utf-8")
+            # Načíst existující XMP – toleruje BOM
+            content = xmp_path.read_text(encoding="utf-8-sig")
 
-            # Aktualizovat existující xmp:Rating
+            # 1) Pokusit se aktualizovat existující xmp:Rating atribut
             new_content, count = re.subn(
                 r'(xmp:Rating=")[^"]*(")',
                 rf"\g<1>{rating}\2",
@@ -104,35 +112,46 @@ def write_xmp_rating(file_path: Path, rating: int, dry_run: bool = False) -> boo
             )
 
             if count == 0:
-                # Rating neexistuje — přidat do prvního rdf:Description
-                if "xmlns:xmp=" not in content:
+                # 2) Pokusit se aktualizovat xmp:Rating jako element
+                new_content, count = re.subn(
+                    r"(<xmp:Rating>)[^<]*(</xmp:Rating>)",
+                    rf"\g<1>{rating}\2",
+                    content,
+                )
+
+            if count == 0:
+                # 3) Rating neexistuje — přidat do prvního rdf:Description
+                new_content = content
+                if "xmlns:xmp=" not in new_content:
                     new_content = re.sub(
                         r"(<rdf:Description\b)",
                         r'\1 xmlns:xmp="http://ns.adobe.com/xap/1.0/"',
-                        content,
+                        new_content,
                         count=1,
                     )
-                else:
-                    new_content = content
-                new_content = re.sub(
+                # Vložit xmp:Rating atribut do prvního rdf:Description tagu
+                new_content, added = re.subn(
                     r"(<rdf:Description\b[^/>]*)",
                     rf'\1\n      xmp:Rating="{rating}"',
                     new_content,
                     count=1,
                 )
+                if added == 0:
+                    print(f"  ⚠ XMP soubor {xmp_path.name} nemá rdf:Description, nelze vložit Rating")
+                    return False, "error"
 
             if not dry_run:
                 xmp_path.write_text(new_content, encoding="utf-8")
+            return True, "updated"
         else:
             if not dry_run:
                 xmp_path.write_text(
                     XMP_TEMPLATE.format(rating=rating), encoding="utf-8"
                 )
-
-        return True
+            return True, "created"
     except OSError as e:
         print(f"  ⚠ XMP chyba pro {file_path.name}: {e}")
-        return False
+        return False, "error"
 
 
 def apply_xmp_only(
@@ -169,12 +188,14 @@ def apply_xmp_only(
             print(f"  ✓ {file_path.name}: bez hodnocení → {new_rating}⭐")
 
             # Zapsat XMP
-            if write_xmp_rating(file_path, new_rating, dry_run):
+            ok, mode = write_xmp_rating(file_path, new_rating, dry_run)
+            if ok:
                 xmp_path = file_path.with_suffix(".xmp")
+                mode_label = "(aktualizován)" if mode == "updated" else "(vytvořen)"
                 if dry_run:
-                    print(f"    [DRY] XMP → {xmp_path}")
+                    print(f"    [DRY] XMP {mode_label} → {xmp_path}")
                 else:
-                    print(f"    XMP → {xmp_path}")
+                    print(f"    XMP {mode_label} → {xmp_path}")
                 xmp_written += 1
             else:
                 xmp_failed += 1
@@ -326,12 +347,14 @@ def apply_ratings(
             # Zapsat XMP sidecar vedle originálního souboru
             if original_path:
                 file_path = Path(original_path)
-                if write_xmp_rating(file_path, new_rating, dry_run):
+                ok, mode = write_xmp_rating(file_path, new_rating, dry_run)
+                if ok:
                     xmp_path = file_path.with_suffix(".xmp")
+                    mode_label = "(aktualizován)" if mode == "updated" else "(vytvořen)"
                     if dry_run:
-                        print(f"    [DRY] XMP → {xmp_path}")
+                        print(f"    [DRY] XMP {mode_label} → {xmp_path}")
                     else:
-                        print(f"    XMP → {xmp_path}")
+                        print(f"    XMP {mode_label} → {xmp_path}")
                     xmp_written += 1
                 else:
                     xmp_failed += 1
