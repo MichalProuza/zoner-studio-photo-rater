@@ -83,6 +83,8 @@ class AnthropicProvider:
         import anthropic
         self.client = anthropic.Anthropic(api_key=api_key)
         self.model = model
+        self.total_input_tokens = 0
+        self.total_output_tokens = 0
 
     def rate_batch(self, prompt: str, images: list[Path]) -> dict[str, int]:
         content = [{"type": "text", "text": prompt}]
@@ -102,6 +104,9 @@ class AnthropicProvider:
             max_tokens=4096,
             messages=[{"role": "user", "content": content}],
         )
+        if hasattr(response, "usage") and response.usage:
+            self.total_input_tokens += getattr(response.usage, "input_tokens", 0)
+            self.total_output_tokens += getattr(response.usage, "output_tokens", 0)
         return parse_json_from_response(response.content[0].text)
 
 
@@ -110,6 +115,14 @@ class GeminiProvider:
         from google import genai
         self.client = genai.Client(api_key=api_key)
         self.model = model
+        self.total_input_tokens = 0
+        self.total_output_tokens = 0
+
+    def _track_usage(self, response):
+        meta = getattr(response, "usage_metadata", None)
+        if meta:
+            self.total_input_tokens += getattr(meta, "prompt_token_count", 0) or 0
+            self.total_output_tokens += getattr(meta, "candidates_token_count", 0) or 0
 
     def rate_batch(self, prompt: str, images: list[Path]) -> dict[str, int]:
         from google.genai import types
@@ -119,21 +132,22 @@ class GeminiProvider:
             image_part = types.Part.from_bytes(data=image_path.read_bytes(), mime_type="image/jpeg")
             content_parts.append(image_part)
         content_parts.append("\nOhodnoť fotky podle instrukcí. JSON výstup v ```json bloku.")
-        
+
         # Seznam variant názvu modelu k vyzkoušení
         model_variants = [self.model]
         if self.model.startswith("models/"): model_variants.append(self.model.replace("models/", ""))
         else: model_variants.append(f"models/{self.model}")
-        
+
         last_exception = None
         for m in model_variants:
             try:
                 response = self.client.models.generate_content(model=m, contents=content_parts)
+                self._track_usage(response)
                 return parse_json_from_response(response.text)
             except Exception as e:
                 last_exception = e
                 if "404" not in str(e): raise # Pokud to není 404, vyhodíme chybu (např. 429)
-        
+
         # Pokud jsme se dostali sem, všechny varianty selhaly s 404
         print(f"  [!] Model '{self.model}' nebyl nalezen ani v jedné variantě.")
         try:
@@ -203,6 +217,39 @@ def rate_batch_with_retry(provider, prompt: str, images: list[Path]) -> dict[str
     return {}
 
 
+# Cena za milion tokenů (input, output) v USD
+MODEL_PRICING = {
+    "claude-sonnet-4-6":          (3.0,  15.0),
+    "claude-opus-4-6":            (15.0, 75.0),
+    "claude-haiku-4-5-20251001":  (0.80,  4.0),
+    "claude-3-7-sonnet-20250219": (3.0,  15.0),
+    "gemini-2.0-flash":           (0.10,  0.40),
+    "gemini-2.0-flash-lite":      (0.075, 0.30),
+}
+
+
+def print_usage_summary(provider, model_id: str) -> None:
+    inp = provider.total_input_tokens
+    out = provider.total_output_tokens
+    total = inp + out
+    if total == 0:
+        return
+    print(f"\nSpotřeba tokenů:")
+    print(f"  Vstupní:  {inp:>10,} tokenů")
+    print(f"  Výstupní: {out:>10,} tokenů")
+    print(f"  Celkem:   {total:>10,} tokenů")
+
+    pricing = MODEL_PRICING.get(model_id)
+    if pricing:
+        cost_input = inp / 1_000_000 * pricing[0]
+        cost_output = out / 1_000_000 * pricing[1]
+        cost_total = cost_input + cost_output
+        print(f"\nOdhadovaná cena ({model_id}):")
+        print(f"  Vstup:  ${cost_input:.4f}")
+        print(f"  Výstup: ${cost_output:.4f}")
+        print(f"  Celkem: ${cost_total:.4f}")
+
+
 def print_distribution(ratings: dict[str, int]) -> None:
     counts = {i: 0 for i in range(1, 6)}
     for v in ratings.values():
@@ -256,10 +303,16 @@ def main() -> None:
     provider = AnthropicProvider(api_key, model_id) if args.provider == "anthropic" else GeminiProvider(api_key, model_id)
     batches = [images[i:i + args.batch_size] for i in range(0, len(images), args.batch_size)]
 
+    total_photos = len(images)
+    done_count = len(ratings)  # již hotové z resume
+
     for i, batch in enumerate(batches, 1):
-        print(f"[{i}/{len(batches)}] Hodnotím dávku {len(batch)} fotek...")
+        print(f"\n[{i}/{len(batches)}] Hodnotím dávku {len(batch)} fotek...")
         try:
             batch_ratings = rate_batch_with_retry(provider, prompt, batch)
+            for name, stars in batch_ratings.items():
+                done_count += 1
+                print(f"  [{done_count}/{total_photos}] {name}: {'*' * stars} ({stars}/5)")
             ratings.update(batch_ratings)
             with open(output_path, "w", encoding="utf-8") as f: json.dump(ratings, f, ensure_ascii=False, indent=2)
             print(f"  [OK] {len(batch_ratings)} hodnocení uloženo")
@@ -274,6 +327,7 @@ def main() -> None:
             time.sleep(10) # Bezpečnostní pauza mezi dávkami
 
     print_distribution(ratings)
+    print_usage_summary(provider, model_id)
 
 if __name__ == "__main__":
     main()
