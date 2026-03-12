@@ -200,8 +200,13 @@ def apply_xmp_only(
 
         # Hledání na disku
         found = False
+        # Přípony, které přeskočíme (XMP sidecar a náhledy)
+        _skip_ext = {".xmp", ".jpg", ".jpeg", ".png", ".tif", ".tiff"}
         for file_path in source_dir.rglob(search_pattern):
             if not file_path.is_file():
+                continue
+            # Přeskočit XMP soubory a náhledy (JPEG/PNG) — zapisujeme XMP jen k RAW
+            if file_path.suffix.lower() in _skip_ext:
                 continue
 
             found = True
