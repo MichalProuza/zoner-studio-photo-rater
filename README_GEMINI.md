@@ -10,12 +10,12 @@ Aplikace nyní umožňuje přepnout mezi Anthropic Claude a Google Gemini.
 - **Nejnovější modely**: Podpora pro Gemini 2.5 Flash, 2.5 Pro, 2.0 Flash a Flash Lite.
 - **Výchozí volba**: `gemini-2.5-flash` — rychlý a cenově výhodný.
 
-### 2. Vylepšené GUI (Grafické rozhraní)
-V `scripts/run_gui.py` přibyly nové ovládací prvky:
-- **Přepínač poskytovatelů**: Snadná volba mezi Anthropic a Google.
-- **Výběr modelu**: Rozbalovací menu s aktuálně dostupnými modely pro každého poskytovatele.
-- **Oddělené klíče**: Aplikace si pamatuje API klíče pro oba poskytovatele zvlášť.
-- **Perzistence**: Všechna nastavení se ukládají do `%APPDATA%\zps-rater\config.ini`.
+### 2. GUI jako jednoduchý průvodce (wizard)
+`scripts/run_gui.py` je třístupňový průvodce:
+- **Krok 1 — Složka**: výběr složky s RAW fotkami (volitelně včetně podsložek).
+- **Krok 2 — Nastavení AI**: přepínač poskytovatelů (Anthropic / Google), výběr modelu a API klíč. Aplikace si pamatuje klíče i modely pro oba poskytovatele zvlášť.
+- **Krok 3 — Spuštění**: souhrn, volba *Dry run*, progress bar s postupem po fotkách a log.
+- **Perzistence**: Všechna nastavení se ukládají automaticky do `%APPDATA%\zps-rater\config.ini`.
 
 ### 3. Automatická správa závislostí
 Při spuštění přes Python skript (`run_gui.py`) aplikace automaticky zkontroluje, zda máte nainstalované potřebné knihovny (`rawpy`, `Pillow`, `anthropic`, `google-genai`). Pokud chybí, pokusí se je sama doinstalovat.

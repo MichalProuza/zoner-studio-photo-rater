@@ -73,7 +73,7 @@ def validate_ratings(ratings: dict) -> dict[str, int]:
             rating = int(value)
             if 1 <= rating <= 5:
                 validated[clean_key] = rating
-        except:
+        except (TypeError, ValueError):
             pass
     return validated
 
@@ -153,8 +153,16 @@ class GeminiProvider:
         try:
             models = [m.name for m in self.client.models.list()]
             print(f"  [!] Dostupné modely pro váš klíč: {', '.join(models[:10])}...")
-        except: pass
+        except Exception:
+            pass
         raise last_exception
+
+
+def _extract_quota_info(err_msg: str) -> list[str]:
+    """Vytáhne názvy metrik a ID kvót z chybové zprávy Gemini API."""
+    metrics = re.findall(r"quotaMetric': '([^']+)'", err_msg)
+    quota_ids = re.findall(r"quotaId': '([^']+)'", err_msg)
+    return [f"    - Metrika: {m}\n    - ID kvóty: {q}" for m, q in zip(metrics, quota_ids)]
 
 
 def rate_batch_with_retry(provider, prompt: str, images: list[Path]) -> dict[str, int]:
@@ -163,17 +171,9 @@ def rate_batch_with_retry(provider, prompt: str, images: list[Path]) -> dict[str
             return validate_ratings(provider.rate_batch(prompt, images))
         except Exception as e:
             err_msg = str(e)
-            
-            # Extrakce podrobných informací o kvótách (pro Gemini)
-            quota_info = []
-            if "quotaMetric" in err_msg:
-                # Pokusíme se najít názvy metrik a ID kvót
-                metrics = re.findall(r"quotaMetric': '([^']+)'", err_msg)
-                quota_ids = re.findall(r"quotaId': '([^']+)'", err_msg)
-                for m, q in zip(metrics, quota_ids):
-                    quota_info.append(f"    - Metrika: {m}\n    - ID kvóty: {q}")
+            quota_info = _extract_quota_info(err_msg) if "quotaMetric" in err_msg else []
 
-            # Detekce vyčerpání denní kvóty (limit 0)
+            # Vyčerpaná denní kvóta (limit 0) — nemá smysl opakovat
             if "limit: 0" in err_msg and "quota" in err_msg.lower():
                 print(f"\n  [!!!] KRITICKÁ CHYBA: Vyčerpána denní kvóta pro tento model (limit 0).")
                 if quota_info:
@@ -185,34 +185,19 @@ def rate_batch_with_retry(provider, prompt: str, images: list[Path]) -> dict[str
                     "Počkejte do zítřka, nebo aktivujte placený plán a vygenerujte nový API klíč."
                 )
 
+            if attempt == RETRY_ATTEMPTS:
+                raise
+
             if "429" in err_msg or "RESOURCE_EXHAUSTED" in err_msg:
                 if quota_info:
                     print(f"  [!] Detaily omezení:\n" + "\n".join(quota_info))
-                
-                # Pokusíme se vytáhnout doporučenou dobu čekání
+                # Doporučená doba čekání z chybové zprávy, jinak konzervativní odhad
                 wait_match = re.search(r"retry in ([\d\.]+)s", err_msg)
-                if wait_match:
-                    wait_time = float(wait_match.group(1)) + 2
-                else:
-                    wait_time = 65 + (attempt * 20) 
-                
-                print(f"  [!] Dosažen limit API (429). Čekám {int(wait_time)} sekund...")
-                time.sleep(wait_time)
-                
-                if attempt < RETRY_ATTEMPTS:
-                    try:
-                        print(f"  [i] Opakuji pokus po čekání...")
-                        return validate_ratings(provider.rate_batch(prompt, images))
-                    except Exception as e2:
-                        err_msg = str(e2)
-                else:
-                    raise
-            
-            if attempt == RETRY_ATTEMPTS:
-                raise
-            
-            wait = RETRY_DELAY * (2 ** (attempt - 1))
-            print(f"  [X] Pokus {attempt} selhal ({err_msg[:100]}...). Čekám {wait}s před dalším pokusem...")
+                wait = float(wait_match.group(1)) + 2 if wait_match else 65 + attempt * 20
+                print(f"  [!] Dosažen limit API (429). Čekám {int(wait)} sekund...")
+            else:
+                wait = RETRY_DELAY * (2 ** (attempt - 1))
+                print(f"  [X] Pokus {attempt} selhal ({err_msg[:100]}...). Čekám {wait}s před dalším pokusem...")
             time.sleep(wait)
     return {}
 
@@ -280,9 +265,15 @@ def main() -> None:
     if args.provider == "anthropic":
         api_key = args.anthropic_api_key or os.environ.get("ANTHROPIC_API_KEY")
         model_id = args.model or DEFAULT_ANTHROPIC_MODEL
+        key_source = "--anthropic-api-key nebo ANTHROPIC_API_KEY"
     else:
         api_key = args.gemini_api_key or os.environ.get("GEMINI_API_KEY")
         model_id = args.model or DEFAULT_GEMINI_MODEL
+        key_source = "--gemini-api-key nebo GEMINI_API_KEY"
+
+    if not api_key:
+        print(f"CHYBA: Chybí API klíč pro {args.provider}. Zadejte jej přes {key_source}.", file=sys.stderr)
+        sys.exit(1)
 
     previews_dir = Path(args.previews_dir)
     if getattr(sys, "frozen", False): _base = Path(sys._MEIPASS)
@@ -294,9 +285,11 @@ def main() -> None:
     ratings = {}
     if args.resume and output_path.exists():
         try:
-            with open(output_path, encoding="utf-8-sig") as f: ratings = json.load(f)
+            with open(output_path, encoding="utf-8-sig") as f:
+                ratings = json.load(f)
             images = [img for img in images if img.stem not in ratings]
-        except: pass
+        except (OSError, json.JSONDecodeError):
+            ratings = {}
 
     if not images:
         if ratings: print_distribution(ratings)

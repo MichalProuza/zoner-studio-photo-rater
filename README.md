@@ -5,7 +5,7 @@ Python nástroj pro automatizovaný workflow:
 2. **AI hodnocení** náhledů (1–5 hvězd) pomocí Anthropic Claude nebo Google Gemini
 3. **Zápis** hvězdiček do XMP metadata
 
-> **Nejjednodušší způsob:** spusť `python scripts/run_gui.py`, vyber složku s fotkami, zvol AI poskytovatele a klikni na Spustit.
+> **Nejjednodušší způsob:** spusť `python scripts/run_gui.py` a projdi třístupňového průvodce — vyber složku, zadej API klíč a klikni na Spustit.
 
 ---
 
@@ -63,7 +63,7 @@ pip install rawpy Pillow anthropic google-genai
 ├── prompts/
 │   └── RATING_PROMPT_V2.md   # Hodnotící kritéria (286 řádků)
 └── scripts/
-    ├── run_gui.py             # GUI (Tkinter)
+    ├── run_gui.py             # Průvodce / wizard (Tkinter)
     ├── extract_previews.py    # Extrakce JPEG z RAW
     ├── rate_with_ai.py        # AI hodnocení + token tracking
     └── apply_ratings.py       # Zápis do XMP / ZPS katalogu
@@ -73,17 +73,18 @@ pip install rawpy Pillow anthropic google-genai
 
 ## Rychlý start — grafické rozhraní (GUI)
 
-Spusťte GUI a postupujte podle instrukcí na obrazovce:
+GUI je jednoduchý **třístupňový průvodce**. Spusťte jej:
 
 ```powershell
 python scripts/run_gui.py
 ```
 
-**Postup v GUI:**
-1. Klikni na **Vybrat…** a vyber složku s RAW fotkami
-2. Vyber **Poskytovatele** (Anthropic nebo Google) a zadej svůj **API klíč**
-3. Vyber **Model** z rozbalovacího menu
-4. Klikni na **▶ Spustit**
+**Kroky průvodce:**
+1. **Složka s fotkami** — vyber složku s RAW fotkami (volitelně včetně podsložek)
+2. **Nastavení AI** — vyber poskytovatele (Anthropic nebo Google), model a zadej API klíč; nastavení se ukládá automaticky pro příště
+3. **Spuštění** — zkontroluj souhrn, případně zapni *Dry run*, a klikni na **▶ Spustit**
+
+Během běhu se zobrazuje **progress bar s postupem hodnocení** (po fotkách) a kompletní log.
 
 ---
 
@@ -116,6 +117,7 @@ python scripts/run_gui.py
 python scripts/extract_previews.py /cesta/k/fotkam -o /cesta/k/fotkam/_previews
 ```
 Extrahuje JPEG náhledy z RAW souborů (RAF, CR2, CR3, NEF, ARW, DNG, ORF, SRW) a zmenší je na 800px.
+Již existující náhledy se přeskakují — opakované spuštění je rychlé. Vynutit novou extrakci lze pomocí `--force`.
 
 ### 2. AI hodnocení
 ```bash
