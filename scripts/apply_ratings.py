@@ -173,6 +173,22 @@ def write_xmp_rating(file_path: Path, rating: int, dry_run: bool = False) -> tup
         return False, "error"
 
 
+# Přípony, které při hledání na disku přeskočíme (XMP sidecar a náhledy)
+SKIP_EXTENSIONS = {".xmp", ".jpg", ".jpeg", ".png", ".tif", ".tiff"}
+
+
+def _index_source_files(source_dir: Path) -> dict[str, list[Path]]:
+    """Jediný průchod diskem: mapa stem (lowercase) → soubory.
+
+    XMP sidecary a náhledy (JPEG/PNG/TIFF) se vynechávají — XMP zapisujeme jen k RAW.
+    """
+    index: dict[str, list[Path]] = {}
+    for file_path in source_dir.rglob("*"):
+        if file_path.is_file() and file_path.suffix.lower() not in SKIP_EXTENSIONS:
+            index.setdefault(file_path.stem.lower(), []).append(file_path)
+    return index
+
+
 def apply_xmp_only(
     ratings: dict[str, int],
     source_dir: Path,
@@ -181,7 +197,8 @@ def apply_xmp_only(
     """
     Zapíše hodnocení jen do XMP sidecar souborů (bez katalogu).
 
-    Hledá fotky přímo na disku v source_dir a jejím poddirectories.
+    Hledá fotky přímo na disku v source_dir a jejích podsložkách.
+    Disk se prochází jen jednou (index podle názvu bez přípony).
     """
     updated = 0
     not_found = 0
@@ -189,26 +206,19 @@ def apply_xmp_only(
     xmp_written = 0
     xmp_failed = 0
 
+    file_index = _index_source_files(source_dir)
+
     for filename, new_rating in ratings.items():
-        # Vytvořit vyhledávací pattern
         if "." in filename:
-            # Mám příponou — hledám přesný název
-            search_pattern = filename
+            # S příponou — hledám přesný název
+            stem = Path(filename).stem.lower()
+            candidates = [p for p in file_index.get(stem, []) if p.name.lower() == filename.lower()]
         else:
             # Bez přípony — hledám s libovolnou příponou
-            search_pattern = f"{filename}.*"
+            candidates = file_index.get(filename.lower(), [])
 
-        # Hledání na disku
         found = False
-        # Přípony, které přeskočíme (XMP sidecar a náhledy)
-        _skip_ext = {".xmp", ".jpg", ".jpeg", ".png", ".tif", ".tiff"}
-        for file_path in source_dir.rglob(search_pattern):
-            if not file_path.is_file():
-                continue
-            # Přeskočit XMP soubory a náhledy (JPEG/PNG) — zapisujeme XMP jen k RAW
-            if file_path.suffix.lower() in _skip_ext:
-                continue
-
+        for file_path in candidates:
             found = True
 
             # Zapsat XMP
